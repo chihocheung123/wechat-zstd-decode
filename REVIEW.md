@@ -463,3 +463,19 @@ Claude CLI 由於外部資料傳輸風險被本環境拒絕執行，因此本輪
 3. **resign_wechatappex.sh Step 1 補齊排除 pattern**：新增 `-not -path "*/*.xpc/*"` / `-not -path "*/*.bundle/*"` / `-not -path "*/Contents/*.app/Contents/*"`，與 resign_wechat_full.sh 對齊，消除 nested helper .app 雙重簽名風險。
 
 **驗證：** `bash -n bin/*.sh` pass，`python3 -m compileall -q` pass，old-path clean。
+
+### Round 11 — Reviewer — 2026-06-18
+
+審查 commit 911960b（Round 10 Writer）。
+
+**P1 — Blocking：**
+
+1. **Index content desync（第五度重現，本次是內容不一致而非檔案缺失）**：`git ls-files bin/` 現在正確回傳 21 條目（檔案數量問題已解），但 `git diff --cached`（index vs HEAD）顯示 index 持有 Round 10 修改前的舊內容——index 中 `resign_wechat_full.sh` 仍是舊的 `-not -path "*/*.app/Contents/*"`（已被 Round 10 修正為 `*/Contents/*.app/Contents/*`），`resign_wechatappex.sh` 缺少 Round 10 新增的三個 `-not -path` 行，`REVIEW.md` 缺少 Round 10 Writer Notes。推斷原因：Writer 以 `shutil.copy2` 覆寫 `.git/index` 時使用的 snapshot 來自 Round 10 寫入前，等於把 index 重置到 Round 9 狀態，然後 commit 以 plumbing 把 Round 10 的改動直接寫進 HEAD tree，但 index 從未更新。後果：若 Writer 直接 `git commit`（不 add），會把 index 的舊內容提交，**撤銷 Round 10 的全部修復**。修法：`git checkout HEAD -- REVIEW.md bin/resign_wechat_full.sh bin/resign_wechatappex.sh`，確認 `git diff --cached` 輸出為空，再 `git add -A` 把 working-tree 剩餘 changes 全部 stage 後 commit。
+
+2. **Working tree 有 2 個未提交改動（非預期包含風險）**：`bin/find_attachable_wechat.sh`（help 文字更新，mention resign_wechat_full.sh）和 `scripts/_migration_dict5_scan_v6.py`（移除 `region.GetMappedPath()` 的 `__LINKEDIT` guard）存在於 working tree 但不在 HEAD、也未 staged。若 Writer 在修完 P1 後執行 `git add -A`，這兩個改動會被一起提交，但它們無對應的 Writer Notes 說明意圖，難以追蹤。建議：明確決定保留（加到同一 commit 並在 Writer Notes 說明）或丟棄（`git checkout HEAD -- bin/find_attachable_wechat.sh scripts/_migration_dict5_scan_v6.py`）。
+
+**P2 — Non-blocking：**
+
+3. **`*/Contents/*.app/Contents/*` pattern 邏輯已驗證正確**：頂層路徑（如 `.../WeChat-Resigned-Full.app/Contents/MacOS/WeChat`）只含一個 `/Contents/` literal，無法匹配需要雙 `/Contents/` 的 pattern，Step 1 可正常簽頂層 Mach-O；nested helper（如 `.../Frameworks/WeChatHelper.app/Contents/MacOS/WeChatHelper`）含兩個 `/Contents/` 且中間有 `WeChatHelper.app`，正確被排除。本 P2 為正面確認，無需額外修改。
+
+4. **`_migration_dict5_scan_v6.py` 移除 `GetMappedPath()` LINKEDIT guard 語義分析**：此 working-tree 改動移除了 `and "__LINKEDIT" not in (region.GetMappedPath() or "")`。原始碼同時用 `name` 和 `GetMappedPath()` 過濾 LINKEDIT，移除後只剩 `name` 過濾。風險：部分 dylib 的 LINKEDIT segment 在 `GetMappedPath()` 中才能被識別，移除後可能引入少量假陽性 region 進入 Phase 2 掃描，增加 false match 機率。若改動目的是降低 false negative（避免漏掃 LINKEDIT 命名的非 dict region），應在 Writer Notes 說明理由。
