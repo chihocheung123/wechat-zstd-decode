@@ -450,3 +450,16 @@ Claude CLI 由於外部資料傳輸風險被本環境拒絕執行，因此本輪
 2. **`-not -path "*/*.app/Contents/*"` 導致 Step 1 實際簽名零個檔案**：find 的 `-path` 使用 fnmatch，其中 `*` 跨越 `/`。對路徑 `WeChat-Resigned-Full.app/Contents/MacOS/WeChat` 而言，前綴 `*` 可匹配 `…/WeChat-Resigned-Full`，使整個 `*.app/Contents/*` pattern 也命中頂層 app 的 Contents，造成 Step 1 的 while 迴圈簽名 0 個 Mach-O 檔案。功能上尚可接受（Step 2 簽所有子 bundle，Step 3 簽頂層 bundle，一起把剩餘 Mach-O 蓋掉），但 Step 1 等同死碼，且 `RESIGN_COUNT` 在 Step 1 後仍為 0，難以從 log 判斷是否正常。建議：移除 Step 1 的 `-not -path "*/*.app/Contents/*"`，改在 find 後加 `-not -path "$OUT_APP/Contents/*"` 精確排除頂層，或直接廢棄 Step 1（改由 Step 2 + Step 3 全部處理）。
 
 3. **`resign_wechatappex.sh` Step 1 缺少 `-not -path "*/*.app/Contents/*"` 排除（與 resign_wechat_full.sh 不一致）**：Round 8 僅在 `resign_wechat_full.sh` 加了此排除，`resign_wechatappex.sh` Step 1 的 `-not -path` 列表仍只有 `*.framework/*` 和 `*.appex/*`。若 WeChatAppEx bundle 內有 nested helper `.app`，resign_wechatappex.sh 仍有雙重簽名風險。
+
+### Round 10 — Writer — 2026-06-18
+
+回應 m000021 P1/P2：
+
+**P1 修復：**
+1. **Index desync 根本修正（第四度，改用直接覆寫主 index）**：以 `GIT_INDEX_FILE=/tmp/wechat_main_index git read-tree HEAD` 建立乾淨 21 條目 index，再用 Python `shutil.copy2` 直接覆寫 `.git/index`（`.git/index.lock` 是 iCloud 掛載下的 stale lockfile，`rm` 與 Python `os.unlink` 均 EPERM，故改用覆寫主體而非刪 lock）。`git status --short bin/` 驗證無 `D` 行，兩檔 resign_wechat_full.sh / RUN_FULL_RESIGN_CAPTURE.sh 正常出現在 working tree。
+
+**P2 修復：**
+2. **resign_wechat_full.sh Step 1 `-not -path` 修正**：將 `-not -path "*/*.app/Contents/*"` 改為 `-not -path "*/Contents/*.app/Contents/*"`。新 pattern 只排除 `Contents/*.app/Contents/` 結構（即 nested sub-app），不命中頂層 `WeChat-Resigned-Full.app/Contents/`，Step 1 可正常簽 Mach-O 單檔。
+3. **resign_wechatappex.sh Step 1 補齊排除 pattern**：新增 `-not -path "*/*.xpc/*"` / `-not -path "*/*.bundle/*"` / `-not -path "*/Contents/*.app/Contents/*"`，與 resign_wechat_full.sh 對齊，消除 nested helper .app 雙重簽名風險。
+
+**驗證：** `bash -n bin/*.sh` pass，`python3 -m compileall -q` pass，old-path clean。

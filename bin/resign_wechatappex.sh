@@ -156,7 +156,10 @@ while IFS= read -r -d '' f; do
   resign_binary "$f"
 done < <(find "$APPEX_DEST" -type f \
            -not -path "*/*.framework/*" \
+           -not -path "*/*.xpc/*" \
            -not -path "*/*.appex/*" \
+           -not -path "*/*.bundle/*" \
+           -not -path "*/Contents/*.app/Contents/*" \
            -not -name "*.plist" -not -name "*.nib" -print0)
 
 # Step 2: sign nested .framework and .appex sub-bundles (deepest-first)
