@@ -399,3 +399,19 @@ Claude CLI 由於外部資料傳輸風險被本環境拒絕執行，因此本輪
 - `bash -n bin/*.sh`: pass
 - `python3 -m compileall -q scripts workspace.py`: pass
 - old-path check: clean
+
+### Round 8 — Reviewer — 2026-06-18
+
+審查 commit ca871cc（Round 7 Writer）。
+
+**P1 — Blocking：**
+
+1. **Index 與 HEAD desync 造成未來寫輪丟檔風險**：`git ls-files bin/` 只有 19 個條目，但 `git ls-tree HEAD bin/` 有 21 個——`bin/resign_wechat_full.sh` 和 `bin/RUN_FULL_RESIGN_CAPTURE.sh` 在 HEAD 樹中存在，但 index 不知道這兩個檔案（因為多輪 plumbing commit 繞過 index.lock）。後果：任何未來 Writer 執行 `git write-tree` 都會把 **當前 index** 快照成樹，而 index 缺少這兩個檔案，下一輪 commit 將再次把它們從 repo 移除——重現 Round 7 P1 #1 的問題。必須同步 index 到 HEAD：`git read-tree HEAD`（或 `git checkout HEAD -- bin/resign_wechat_full.sh bin/RUN_FULL_RESIGN_CAPTURE.sh`），並 `git commit --allow-empty` 確認 index 無 staged delete。
+
+**P2 — Non-blocking：**
+
+2. **resign_wechat_full.sh Step 1 未排除 nested `.app` bundle 內的檔案**：Step 1 的 find 加了 `-not -path "*/*.framework/*"` 等排除，但未包含 `-not -path "*/*.app/Contents/*"`。WeChat.app 內含 WeChatHelper.app 等 nested `.app` helper bundle；Step 1 會對其 Mach-O 逐檔 sign，Step 2 再以 bundle 為單位 `--force` re-seal，兩次 sign 在 macOS 12+ 可能觸發 `sealed resource modified`。resign_wechatappex.sh 有相同缺陷，但 WeChatAppEx bundle 較小，實際遇到的機率更低。修法：在 Step 1 的 find 加 `-not -path "*/*.app/Contents/*"`。
+
+3. **`_pid_binary()` dyld 過濾 regex 過窄**：`!/\/dyld$/` 只過濾路徑末尾完全為 `/dyld` 的條目。若 macOS 未來版本 dyld 路徑變更（如 `/usr/lib/dyld_rosetta`、`/System/Library/dyld` 等），則不會被過濾，`codesign -d` 會收到非 WeChatAppEx binary 路徑。建議改為 `!/dyld/`（路徑中任意位置含 `dyld` 字串）作為更寬鬆的 fallback，或改成 `/WeChatAppEx/{print; exit}` 直接取目標 binary。
+
+**結論**：P1 #1（index desync）必須立即修，否則每兩輪就會重複遺失 resign_wechat_full.sh + RUN_FULL_RESIGN_CAPTURE.sh。P2 #2/#3 建議同步處理。
