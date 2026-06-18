@@ -1,0 +1,213 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import json
+import subprocess
+import sys
+import time
+from typing import Any
+
+
+DEFAULT_REF = "refs/agent-chat/main"
+ZERO_OID = "0" * 40
+MESSAGE_TYPES = ("review", "risk", "done", "note")
+
+
+def git(args: list[str], input_text: str | None = None, check: bool = True) -> subprocess.CompletedProcess[str]:
+    proc = subprocess.run(
+        ["git", *args],
+        input=input_text,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if check and proc.returncode != 0:
+        err = proc.stderr.strip() or proc.stdout.strip()
+        raise SystemExit(f"git {' '.join(args)} failed: {err}")
+    return proc
+
+
+def ensure_repo() -> None:
+    proc = git(["rev-parse", "--is-inside-work-tree"], check=False)
+    if proc.returncode != 0 or proc.stdout.strip() != "true":
+        raise SystemExit("agent-chat must be run inside a Git work tree")
+
+
+def ref_oid(ref: str) -> str | None:
+    proc = git(["rev-parse", "--verify", f"{ref}^{{object}}"], check=False)
+    if proc.returncode != 0:
+        return None
+    return proc.stdout.strip()
+
+
+def read_ref_text(ref: str) -> tuple[str | None, str]:
+    oid = ref_oid(ref)
+    if oid is None:
+        return None, ""
+    proc = git(["cat-file", "-p", oid])
+    return oid, proc.stdout
+
+
+def parse_messages(raw: str) -> list[dict[str, Any]]:
+    messages: list[dict[str, Any]] = []
+    for line_no, line in enumerate(raw.splitlines(), 1):
+        if not line.strip():
+            continue
+        try:
+            msg = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise SystemExit(f"invalid message JSON at line {line_no}: {exc}") from exc
+        if not isinstance(msg, dict):
+            raise SystemExit(f"invalid message at line {line_no}: expected object")
+        messages.append(msg)
+    return messages
+
+
+def message_number(message_id: str) -> int:
+    if message_id.startswith("m") and message_id[1:].isdigit():
+        return int(message_id[1:])
+    if message_id.isdigit():
+        return int(message_id)
+    return 0
+
+
+def next_id(messages: list[dict[str, Any]]) -> str:
+    last = max((message_number(str(m.get("id", ""))) for m in messages), default=0)
+    return f"m{last + 1:06d}"
+
+
+def head_commit() -> str:
+    proc = git(["rev-parse", "--short", "HEAD"], check=False)
+    return proc.stdout.strip() if proc.returncode == 0 else ""
+
+
+def now_iso() -> str:
+    return dt.datetime.now(dt.timezone.utc).astimezone().isoformat(timespec="seconds")
+
+
+def format_message(msg: dict[str, Any]) -> str:
+    reply_to = msg.get("reply_to") or "-"
+    commit = msg.get("commit") or "-"
+    header = (
+        f"{msg.get('id', '?')}  {msg.get('time', '?')}  "
+        f"{msg.get('from', '?')}  {msg.get('type', '?')}  "
+        f"reply_to={reply_to}  commit={commit}"
+    )
+    body = str(msg.get("body", "")).rstrip()
+    if not body:
+        return header
+    indented = "\n".join(f"  {line}" if line else "" for line in body.splitlines())
+    return f"{header}\n{indented}"
+
+
+def command_check(args: argparse.Namespace) -> int:
+    ensure_repo()
+    _, raw = read_ref_text(args.ref)
+    messages = parse_messages(raw)
+    if args.type:
+        messages = [m for m in messages if m.get("type") == args.type]
+    if args.since:
+        floor = message_number(args.since)
+        messages = [m for m in messages if message_number(str(m.get("id", ""))) > floor]
+    if args.limit is not None:
+        messages = messages[-args.limit :]
+
+    if args.json:
+        print(json.dumps(messages, ensure_ascii=False, indent=2))
+    else:
+        if not messages:
+            print(f"(no messages in {args.ref})")
+            return 0
+        print("\n\n".join(format_message(m) for m in messages))
+    return 0
+
+
+def read_body(args: argparse.Namespace) -> str:
+    if args.message is not None:
+        return args.message.strip()
+    if args.body:
+        return " ".join(args.body).strip()
+    if not sys.stdin.isatty():
+        return sys.stdin.read().strip()
+    raise SystemExit("message body required: use -m/--message, positional text, or stdin")
+
+
+def command_send(args: argparse.Namespace) -> int:
+    ensure_repo()
+    body = read_body(args)
+    if not body:
+        raise SystemExit("message body is empty")
+
+    for attempt in range(8):
+        old_oid, raw = read_ref_text(args.ref)
+        messages = parse_messages(raw)
+        msg = {
+            "id": next_id(messages),
+            "from": args.author,
+            "type": args.type,
+            "reply_to": args.reply_to or "",
+            "time": now_iso(),
+            "commit": head_commit(),
+            "body": body,
+        }
+        new_raw = raw
+        if new_raw and not new_raw.endswith("\n"):
+            new_raw += "\n"
+        new_raw += json.dumps(msg, ensure_ascii=False, separators=(",", ":")) + "\n"
+        new_oid = git(["hash-object", "-w", "--stdin"], input_text=new_raw).stdout.strip()
+        expected = old_oid or ZERO_OID
+        proc = git(["update-ref", "--create-reflog", args.ref, new_oid, expected], check=False)
+        if proc.returncode == 0:
+            print(format_message(msg))
+            return 0
+        time.sleep(0.05 * (attempt + 1))
+
+    raise SystemExit(f"failed to update {args.ref}: concurrent writer kept changing the ref")
+
+
+def command_raw(args: argparse.Namespace) -> int:
+    ensure_repo()
+    _, raw = read_ref_text(args.ref)
+    print(raw, end="")
+    return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Git ref backed agent chat. Messages live outside branches and work trees.",
+    )
+    parser.add_argument("--ref", default=DEFAULT_REF, help=f"chat ref (default: {DEFAULT_REF})")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    check_p = sub.add_parser("check", help="read recent messages")
+    check_p.add_argument("-n", "--limit", type=int, default=10, help="number of recent messages")
+    check_p.add_argument("--since", help="only show messages after this id")
+    check_p.add_argument("--type", choices=MESSAGE_TYPES, help="filter by message type")
+    check_p.add_argument("--json", action="store_true", help="print JSON array")
+    check_p.set_defaults(func=command_check)
+
+    send_p = sub.add_parser("send", help="append one message")
+    send_p.add_argument("--from", dest="author", required=True, help="agent name, e.g. claude or codex")
+    send_p.add_argument("--type", required=True, choices=MESSAGE_TYPES, help="message type")
+    send_p.add_argument("--reply-to", default="", help="message id this responds to")
+    send_p.add_argument("-m", "--message", help="message body")
+    send_p.add_argument("body", nargs="*", help="message body when -m is omitted")
+    send_p.set_defaults(func=command_send)
+
+    raw_p = sub.add_parser("raw", help="dump raw JSONL")
+    raw_p.set_defaults(func=command_raw)
+
+    return parser
+
+
+def main() -> int:
+    parser = build_parser()
+    args = parser.parse_args()
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+

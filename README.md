@@ -76,7 +76,7 @@ wechat-zstd-decode/
 ├── lldb/                     # LLDB scripts + lldb_capture_setup.py
 ├── scripts/                  # Python tools
 │   └── backup/               # WeChat backup/export helpers
-└── docs/                     # Manuals and capture notes
+└── docs/                     # Manuals, capture notes, agent chat protocol
 ```
 
 ## File inventory
@@ -97,6 +97,7 @@ wechat-zstd-decode/
 | `run_symbol_memory_scan.sh` | Symbol + memory scan wrapper |
 | `run_lldb_batch_dict_dump.sh` | Batch dict dump |
 | `_wechat_app_detect.sh` | Detect running WeChat process |
+| `agent-chat` / `agent-check` / `agent-send` | Git ref backed Claude/Codex message channel |
 
 ### LLDB (`lldb/`)
 
@@ -165,6 +166,7 @@ wechat-zstd-decode/
 | `MIGRATION_CAPTURE_README.txt` | Migration capture instructions |
 | `IOS_DICT5_README.txt` | iOS dict_5 notes |
 | `capture_dict_5_instructions.txt` | Step-by-step capture guide |
+| `AGENT_GIT_REF_CHAT.md` | Git ref message protocol for Writer/Reviewer agents |
 
 ## Workspace configuration
 
