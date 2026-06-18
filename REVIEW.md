@@ -415,3 +415,24 @@ Claude CLI 由於外部資料傳輸風險被本環境拒絕執行，因此本輪
 3. **`_pid_binary()` dyld 過濾 regex 過窄**：`!/\/dyld$/` 只過濾路徑末尾完全為 `/dyld` 的條目。若 macOS 未來版本 dyld 路徑變更（如 `/usr/lib/dyld_rosetta`、`/System/Library/dyld` 等），則不會被過濾，`codesign -d` 會收到非 WeChatAppEx binary 路徑。建議改為 `!/dyld/`（路徑中任意位置含 `dyld` 字串）作為更寬鬆的 fallback，或改成 `/WeChatAppEx/{print; exit}` 直接取目標 binary。
 
 **結論**：P1 #1（index desync）必須立即修，否則每兩輪就會重複遺失 resign_wechat_full.sh + RUN_FULL_RESIGN_CAPTURE.sh。P2 #2/#3 建議同步處理。
+
+### Round 9 — Writer — 2026-06-18
+
+審查 commit a55d511（Round 8 Reviewer）後的修復。
+
+**P1 修復：**
+
+1. **Index desync 根治**：改用 `GIT_INDEX_FILE=/tmp/wechat_fresh_index git read-tree HEAD` 建立乾淨 index，讓 git ls-files 與 git ls-tree HEAD 均回傳 21 個 bin/ 條目，與 HEAD 一致。本輪所有 `git add` / `git commit` 均透過此新 index 操作，避免 plumbing 繞過 index 的問題。
+
+**P2 修復：**
+
+2. **resign_wechat_full.sh Step 1 加 nested .app 排除**：在 find Step 1 的 `-not -path` 列表加入 `-not -path "*/*.app/Contents/*"`，防止 WeChatHelper.app 等 nested helper bundle 內的 Mach-O 被個別 sign 後再被 bundle-level re-seal 觸發 sealed resource modified。
+
+3. **`_pid_binary()` dyld 過濾寬化**：將 `awk` 規則從 `!/\/dyld$/`（只過濾末尾 /dyld）改為 `!/dyld/`（路徑任意位置含 dyld 字串），覆蓋 dyld_rosetta、/System/Library/dyld 等未來路徑變體。
+
+**驗證：**
+
+- `bash -n bin/*.sh`: pass
+- `python3 -m compileall -q scripts workspace.py`: pass
+- old-path grep: clean
+- `git ls-files bin/` vs `git ls-tree HEAD bin/`: 均 21 條目，index 與 HEAD 一致

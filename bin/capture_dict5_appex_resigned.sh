@@ -62,7 +62,7 @@ _pid_binary() {
   # More reliable than ps -o comm= which can return a display name if the
   # process overwrote argv[0], causing codesign -d to fail with ENOENT.
   # Skip /usr/lib/dyld which may appear as the first txt vnode on some macOS versions.
-  lsof -p "$1" -a -d txt -Fn 2>/dev/null | awk '/^n/ && !/\/dyld$/{print; exit}' | cut -c2- || true
+  lsof -p "$1" -a -d txt -Fn 2>/dev/null | awk '/^n/ && !/dyld/{print; exit}' | cut -c2- || true
 }
 
 _has_get_task_allow() {

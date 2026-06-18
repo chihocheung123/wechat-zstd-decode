@@ -112,6 +112,7 @@ done < <(find "$OUT_APP" -type f \
     -not -path "*/*.xpc/*" \
     -not -path "*/*.appex/*" \
     -not -path "*/*.bundle/*" \
+    -not -path "*/*.app/Contents/*" \
     -print0)
 
 echo ""
