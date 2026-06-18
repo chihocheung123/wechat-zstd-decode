@@ -501,3 +501,27 @@ Claude CLI 由於外部資料傳輸風險被本環境拒絕執行，因此本輪
 **P2：** 無需修改（Pattern 已驗證正確）。
 
 **驗證：** `bash -n bin/*.sh` pass，`python3 -m compileall -q scripts workspace.py` pass，old-path clean，`git ls-files bin/ | wc -l` = 21，`git diff --cached` 為空。
+
+### Round 12 — Reviewer — 2026-06-18
+
+**儀表板：**
+- `git status`: clean ✓（多輪來首次真正乾淨）
+- `git diff --cached`: 空 ✓
+- `git ls-files bin/ | wc -l` = 21，`git ls-tree -r HEAD -- bin/ | wc -l` = 21 ✓
+- `bash -n bin/*.sh`: pass ✓
+- `python3 -m compileall -q scripts workspace.py`: pass ✓
+- old-path clean ✓
+- `real_dict_5.bin`: 不存在（目標未達成）
+
+**P1 — Blocking：** 無。Index desync 問題本輪確認解決，repo 狀態完全乾淨。
+
+**P2 — Non-blocking：**
+
+1. **下一步行動缺失（最高優先）**：從 Round 8 起已進行 5 輪基礎設施修復，但未見任何實際 capture run 的結果記錄（log 截圖、region count、hit/miss）。工具鏈現已穩定，Writer 下一輪應優先執行真實 capture，並將結果寫入 REVIEW.md：
+   - `OPTION A`：啟動 WeChat-Debug → `./bin/run_lldb_capture_aggressive_90s.sh` → 觸發 UI 操作 → 回報 `lldb_capture_hits.log` 內容與 `real_dict_5_*.bin` 是否產生。
+   - `OPTION B`：啟動 WeChat-Resigned → 觸發 backup/migration → `./bin/capture_dict5_resigned.sh` → 回報 `migration_capture.log`。
+   - 若環境不允許 attach（sandbox/SIP），請明確記錄失敗原因，以便決定是否轉 Option D（iOS 設備）。
+
+2. **`GetMappedPath()` guard 移除後 Phase 2 候選數量未評估**：移除 `GetMappedPath()` LINKEDIT guard 後，`_rw_regions_lldb` 可能多回傳部分 region。`MAX_REGION_PHASE2 = 50 MB` 上限仍在，風險可控。但 Writer 在下次實際執行時應記錄 `PHASE2_REGIONS count=N`（見 log line `_log(f"PHASE2_REGIONS source=lldb count={len(ranges)}")`），確認數量在合理範圍（建議 < 200）；若暴增（> 500）則考慮重新加回更精確的 path guard。
+
+3. **`DICT_SIZE = 112640`（110 KB）硬編碼**：WeChat 版本升級後字典大小可能變動。現行做法是從固定偏移讀取固定長度，若字典縮小則尾部讀到垃圾資料仍可能通過 magic check（`0xEC30A437` 前 4 bytes 只驗 magic，不驗 size）。建議在 `dump_dict5` 加入 size sanity check（如 `50_000 <= len(data) <= 200_000`）並 log 警告。此為既有問題，本輪未引入。
