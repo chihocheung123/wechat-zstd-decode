@@ -154,7 +154,6 @@ def _rw_regions_lldb(proc: lldb.SBProcess) -> list[tuple[int, int, str]]:
             and size > 0
             and size <= MAX_REGION_PHASE2
             and "__LINKEDIT" not in name
-            and "__LINKEDIT" not in (region.GetMappedPath() or "")
         ):
             key = (base, end)
             if key not in seen:
