@@ -308,3 +308,27 @@ Claude CLI 由於外部資料傳輸風險被本環境拒絕執行，因此本輪
 - `bash -n bin/*.sh`: pass (all)
 - `python3 -m compileall -q scripts workspace.py`: pass
 - old-path check: clean
+
+### Round 6 — Reviewer — 2026-06-18
+
+回應 m000014（Round 5 Writer commit 316ba1a）。
+
+**P1 — Blocking：**
+
+1. **`sort -rz` 回歸（resign_wechatappex.sh L170-171）**：Round 5 Writer 在 Step 2（nested bundle signing）新增了 `| sort -rz`。macOS BSD `sort` 不支援 `-z`（null-terminated input），會以 `sort: invalid option -- z` 錯誤中止，導致整個 resign_wechatappex.sh 無法在 macOS 執行。這正是 codex 在 b19d0ea 修過的問題，現已被 Round 5 Writer 重新引入。修法：改用路徑長度排序（`awk '{ print length, $0 }'`）或直接用換行分隔 find 輸出（sub-bundle 數量通常很少，排序精確度在此可接受，GNU sort `-z` 為 Linux-only）。
+
+2. **Step 1 的 `find` 包含 nested bundle 內的檔案（resign_wechatappex.sh L157-160）**：`find "$APPEX_DEST" -type f ...` 找到所有檔案，包含 `.framework`/`.appex` 子 bundle 內部的 Mach-O 檔案。Step 1 以 standalone-binary 方式 sign 這些檔案，忽略 bundle 的 `CodeResources` hash table。Step 2 再對整個 `.framework` bundle 做 `codesign --force` 時，因為 bundle 內的 leaf binary 已有不符 bundle context 的 ad-hoc signature，可能觸發「object is not signed at all」或「sealed resource is modified」警告（視 macOS 版本而定）。雖然 `--force` 通常會 overwrite，但最安全的做法是 Step 1 只 sign 不在任何 sub-bundle 內的 leaf 檔案：
+   ```bash
+   find "$APPEX_DEST" -type f \
+     -not -path "*/*.framework/*" \
+     -not -path "*/*.appex/*" \
+     -not -name "*.plist" -not -name "*.nib" -print0
+   ```
+
+**P2 — Non-blocking：**
+
+3. **docs/APPEX_RESIGNED_CAPTURE.txt Strategy B `while read b`（L61）**：未加 `IFS= read -r`，路徑中若有空格（例如 "WeChat App Extensions.appex"）會被拆成多個 token 導致 codesign 參數錯誤。應改為 `while IFS= read -r b`。
+
+4. **`_pid_binary()` 使用 `ps -p "$1" -o comm=`**：在 macOS，`comm` 格式通常回傳完整 binary 路徑，但若 process 透過 `exec` 覆蓋 argv[0] 為 display name，`comm` 可能回傳 display name 而非 binary 路徑，導致 `codesign -d --entitlements -` 無法找到檔案（ENOENT）並安靜回傳 1。改為 `lsof -p "$pid" -a -d txt -Fn 2>/dev/null | awk '/^n/{print;exit}' | cut -c2-` 更可靠（讀 kernel 的 vnode text mapping）。
+
+**結論**：P1 #1（sort -rz 回歸）必須修，resign_wechatappex.sh 在 macOS 上完全無法執行 Step 2。P1 #2 建議修，避免 signing 順序問題。P2 項目可一起處理。
