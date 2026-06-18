@@ -73,7 +73,7 @@ done
 if [[ -z "$APPEX_SRC" ]]; then
   # Fallback: deep search inside the WeChat.app bundle
   echo "Searching for WeChatAppEx.app inside ${WECHAT_APP} ..."
-  APPEX_SRC="$(find "$WECHAT_APP" -name "WeChatAppEx.app" -maxdepth 8 2>/dev/null | head -1 || true)"
+  APPEX_SRC="$(find "$WECHAT_APP" -maxdepth 8 -name "WeChatAppEx.app" 2>/dev/null | head -1 || true)"
 fi
 
 if [[ -z "$APPEX_SRC" ]] || [[ ! -d "$APPEX_SRC" ]]; then
@@ -149,13 +149,18 @@ echo "Resigning Mach-O binaries in bundle ..."
 # Sign leaf binaries first, then the app bundle (codesign requirement)
 while IFS= read -r -d '' f; do
   resign_binary "$f"
-done < <(find "$APPEX_DEST" -type f -not -name "*.plist" -not -name "*.nib" -print0 | sort -rz)
+done < <(find "$APPEX_DEST" -type f -not -name "*.plist" -not -name "*.nib" -print0)
 
 # Sign the top-level bundle last
-codesign --force --sign - \
+if codesign --force --sign - \
     --entitlements "$ENTITLEMENTS_TMP" \
     --timestamp=none \
-    "$APPEX_DEST" 2>&1 || true
+    "$APPEX_DEST" 2>&1; then
+  :
+else
+  echo "  WARNING: top-level codesign failed for $APPEX_DEST" >&2
+  RESIGN_ERRORS=$((RESIGN_ERRORS + 1))
+fi
 
 rm -f "$ENTITLEMENTS_TMP"
 
@@ -173,6 +178,8 @@ echo ""
 
 if [[ "$RESIGN_ERRORS" -gt 0 ]]; then
   echo "WARNING: ${RESIGN_ERRORS} resign error(s) — some binaries may not be attachable."
+  echo "Fix the signing errors above before running capture."
+  exit 1
 fi
 
 echo "═══════════════════════════════════════════════════════════════"

@@ -40,14 +40,25 @@ printf "%-8s %-20s %-12s %s\n" "PID" "PROCESS" "ATTACHABLE" "BINARY"
 printf "%-8s %-20s %-12s %s\n" "---" "-------" "----------" "------"
 
 found=0
-declare -A seen_pids
+seen_pids=""
+
+pid_seen() {
+  case " $seen_pids " in
+    *" $1 "*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+mark_pid_seen() {
+  seen_pids="${seen_pids}${1} "
+}
 
 for pattern in "${PATTERNS[@]}"; do
   while IFS= read -r line; do
     [[ -n "$line" ]] || continue
     pid="${line%% *}"
-    [[ -v "seen_pids[$pid]" ]] && continue
-    seen_pids["$pid"]=1
+    pid_seen "$pid" && continue
+    mark_pid_seen "$pid"
 
     bin_path="$(get_pid_executable "$pid" 2>/dev/null || echo '?')"
     proc_name="$(basename "$bin_path" 2>/dev/null || echo "$pattern")"
@@ -85,7 +96,7 @@ echo ""
 
 # Collect all binary paths from seen PIDs and check for debug/resigned builds
 has_attachable=false
-for pid in "${!seen_pids[@]}"; do
+for pid in $seen_pids; do
   bin="$(get_pid_executable "$pid" 2>/dev/null || true)"
   if [[ "$bin" == *"WeChat-Debug"* ]] || [[ "$bin" == *"WeChat-Resigned"* ]]; then
     has_attachable=true
@@ -98,7 +109,8 @@ for pid in "${!seen_pids[@]}"; do
 done
 
 if [[ "$has_attachable" == "true" ]]; then
-  echo -e "${GREEN}✅ Debug/Resigned build detected — use these for LLDB capture:${NC}"
+  echo -e "${GREEN}✅ Debug/Resigned build detected — use the matching LLDB capture path:${NC}"
+  echo "   ./bin/capture_dict5_appex_resigned.sh          (attachable WeChatAppEx/helper)"
   echo "   ./bin/capture_dict5_migration.sh --app debug    (WeChat-Debug main process)"
   echo "   ./bin/capture_dict5_resigned.sh                 (WeChat-Resigned with backup UI)"
 else
@@ -109,8 +121,9 @@ else
   echo "     Then: ./bin/capture_dict5_migration.sh --app debug"
   echo ""
   echo "  2. Re-sign WeChat.app with get-task-allow entitlement:"
-  echo "     See docs/LLDB_MANUAL.md section 'Resigning WeChat'"
-  echo "     Then: ./bin/capture_dict5_resigned.sh"
+  echo "     For helper-only: ./bin/resign_wechatappex.sh"
+  echo "     For full bundle: see docs/APPEX_RESIGNED_CAPTURE.txt"
+  echo "     Then: ./bin/capture_dict5_appex_resigned.sh"
   echo ""
   echo "  3. Capture on iOS device (most reliable for dict_id=5):"
   echo "     See docs/IOS_DICT5_README.txt"
