@@ -1,6 +1,6 @@
 settings set interpreter.require-overwrite true
 settings set target.process.stop-on-sharedlibrary-events false
-command script import /Users/patrickchiho/Projects/wechat-zstd-decode/lldb/lldb_capture_setup.py
+script import os, lldb; repo = os.environ.get("WECHAT_ZSTD_REPO") or (os.path.dirname(os.getcwd()) if os.path.basename(os.getcwd()) == "lldb" else os.getcwd()); setup = os.path.join(repo, "lldb", "lldb_capture_setup.py"); lldb.debugger.HandleCommand(f'command script import "{setup}"')
 breakpoint set -a 0x1134b2a20 -N dict_resolve
 breakpoint command add -F lldb_capture_setup.roam_bp_hit dict_resolve
 process continue

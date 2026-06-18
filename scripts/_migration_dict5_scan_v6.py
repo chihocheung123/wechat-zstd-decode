@@ -12,7 +12,8 @@ import sys
 import time
 from datetime import datetime
 
-EXPORT = str(Path(__import__("os").environ.get("WECHAT_ZSTD_WORKSPACE", str(Path(__file__).resolve().parent.parent / "data"))))
+REPO_ROOT = Path(os.environ.get("WECHAT_ZSTD_REPO", Path(__file__).resolve().parent.parent))
+EXPORT = str(Path(os.environ.get("WECHAT_ZSTD_WORKSPACE", str(REPO_ROOT / "data"))))
 APP_LABEL = os.environ.get("MIGRATION_CAPTURE_APP_LABEL", "WeChat")
 APP_PATH = os.environ.get("MIGRATION_CAPTURE_APP_PATH", "")
 ENABLE_BP = os.environ.get("MIGRATION_ENABLE_BP", "0") not in ("0", "false", "False", "no")
@@ -32,7 +33,10 @@ BP_SYMBOL_NAMES = (
     "ZSTD_decompress_usingDDict",
 )
 BP_MAX = 10
-VALIDATE_SCRIPT = os.path.join(EXPORT, "validate_dict5.py")
+VALIDATE_SCRIPT = os.environ.get(
+    "WECHAT_ZSTD_VALIDATE_SCRIPT",
+    str(REPO_ROOT / "scripts" / "validate_dict5.py"),
+)
 LOG_PATH = os.path.join(EXPORT, "migration_capture.log")
 
 _STATE: dict = {

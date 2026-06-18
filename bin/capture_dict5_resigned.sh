@@ -6,9 +6,10 @@ mkdir -p "$WORKSPACE"
 set -euo pipefail
 
 EXPORT="$WORKSPACE"
+VALIDATE_SCRIPT="${REPO_ROOT}/scripts/validate_dict5.py"
 RESIGNED_APP="${EXPORT}/WeChat-Resigned.app"
 RESIGNED_BIN="${RESIGNED_APP}/Contents/MacOS/WeChat"
-SCAN_MODULE="${EXPORT}/_migration_dict5_scan_v6.py"
+SCAN_MODULE="${REPO_ROOT}/scripts/_migration_dict5_scan_v6.py"
 LOG="${EXPORT}/resigned_capture_run.log"
 SUMMARY="${EXPORT}/resigned_capture_summary.txt"
 WAIT_SECONDS="${WAIT_SECONDS:-300}"
@@ -18,6 +19,9 @@ CAPTURE_FORCE="${CAPTURE_FORCE:-0}"
 # Scan-only by default; set MIGRATION_ENABLE_BP=1 to enable roam_migration breakpoints.
 MIGRATION_ENABLE_BP="${MIGRATION_ENABLE_BP:-0}"
 export MIGRATION_ENABLE_BP
+export WECHAT_ZSTD_REPO="$REPO_ROOT"
+export WECHAT_ZSTD_WORKSPACE="$WORKSPACE"
+export WECHAT_ZSTD_VALIDATE_SCRIPT="$VALIDATE_SCRIPT"
 
 cd "$EXPORT"
 
@@ -206,7 +210,7 @@ write_summary() {
 
   local valid_rc=1
   if [[ -f real_dict_5.bin ]] || [[ "$captured" -gt 0 ]]; then
-    python3 "${EXPORT}/validate_dict5.py" || valid_rc=$?
+    python3 "$VALIDATE_SCRIPT" "${EXPORT}/real_dict_5.bin" || valid_rc=$?
   else
     echo "未產生 real_dict_5*.bin — 請在掃描期間點擊「開始備份/遷移」後重試"
   fi

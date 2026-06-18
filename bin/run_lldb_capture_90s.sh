@@ -45,7 +45,9 @@ printf '' > lldb_capture_hit_count.txt
 export BATCH_CAPTURE_SECONDS=90
 export BATCH_CAPTURE_DETACH=1
 export BATCH_CAPTURE_QUIT=1
+export WECHAT_ZSTD_REPO="$REPO_ROOT"
 export WECHAT_ZSTD_WORKSPACE="$WORKSPACE"
+export WECHAT_ZSTD_VALIDATE_SCRIPT="${REPO_ROOT}/scripts/validate_dict5.py"
 
 LLDB_SCRIPT="${LLDB_DIR}/lldb_capture_wcdb.lldb"
 if [[ "${LLDB_CAPTURE_AGGRESSIVE:-}" == "1" ]]; then

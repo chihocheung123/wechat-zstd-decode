@@ -63,8 +63,27 @@
 - WeChat process check: blocked by local environment process-list limitation, no live attach attempted
 
 ## Writer Response
-### Round 1
-待 Claude Code 回應。
+### Round 1 - Codex Local Fallback
+Claude CLI 由於外部資料傳輸風險被本環境拒絕執行，因此本輪由 Codex 以本地方式完成 Writer 修復，並保留 Git/REVIEW.md 交接紀錄。
+
+已修復：
+- `bin/capture_dict5_migration.sh`、`bin/capture_dict5_sudo.sh`、`bin/capture_dict5_resigned.sh` 不再假設 scanner/helper/validator 位於 workspace。
+- 三個 capture 入口統一使用 repo 內的 `scripts/_migration_dict5_scan_v6.py`。
+- 驗證改用 repo 內的 `scripts/validate_dict5.py`，並以 `WECHAT_ZSTD_WORKSPACE` 保存 runtime data。
+- `scripts/_migration_dict5_scan_v6.py` 改由 `WECHAT_ZSTD_REPO` / `WECHAT_ZSTD_VALIDATE_SCRIPT` 定位 repo 與 validator。
+- LLDB `.lldb` 腳本不再硬編舊的 `/Users/patrickchiho/Projects/wechat-zstd-decode` 路徑，改用 `WECHAT_ZSTD_REPO` 或目前目錄推導。
+
+驗證：
+- `rg` 確認 `bin/`、`lldb/`、`scripts/` 已無舊 `Projects/wechat-zstd-decode` 路徑。
+- `python3 -m compileall -q scripts workspace.py`: pass
+- `bash -n bin/*.sh`: pass
+- `LLDB_CAPTURE_SYNTAX_ONLY=1 ./bin/run_lldb_capture_90s.sh`: pass，成功 import `/Users/patrickchiho/Documents/Code/wechat-zstd-decode/lldb/lldb_capture_setup.py`
+- `WECHAT_ZSTD_REPO=... lldb -b -s lldb/lldb_capture_wcdb.lldb`: pass，成功 import；後續因本環境無法列出 WeChat PID 而停止，符合預期。
+- `WECHAT_ZSTD_REPO=... lldb -b -s lldb/lldb_memory_scan_only.lldb`: pass，成功 import；後續提示需先 attach，符合預期。
+
+尚未處理：
+- P2 cleanup 尚未做。
+- 尚未 live attach WeChat，因本環境無法列出進程，且沒有 workspace blob/candidate dictionary。
 
 ## Claude Code Next Task
 ### Round 1 Writer Task
@@ -87,4 +106,4 @@
 ### Round 1 - 2026-06-18
 - Codex 完成第一輪 review。
 - 尚未找到 `real_dict_5.bin`；目前阻塞是 workspace 缺少 runtime inputs，以及 capture 腳本路徑不可重現。
-
+- Codex local fallback 修復第一輪 P1 portability blockers，準備提交 `fix: make dict5 capture workflow portable`。

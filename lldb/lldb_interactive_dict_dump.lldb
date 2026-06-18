@@ -6,7 +6,7 @@ settings set auto-confirm true
 
 script
 import lldb, os, subprocess, re, time
-export_dir = os.environ.get('EXPORT_DIR', '/Users/patrickchiho/Projects/wechat-zstd-decode/lldb')
+export_dir = os.environ.get('EXPORT_DIR') or os.environ.get('WECHAT_ZSTD_WORKSPACE') or os.getcwd()
 log_path = os.path.join(export_dir, 'lldb_breakpoint_hits.log')
 run_sec = int(os.environ.get('LLDB_RUN_SEC', '45'))
 batch = os.environ.get('LLDB_BATCH', '1') == '1'

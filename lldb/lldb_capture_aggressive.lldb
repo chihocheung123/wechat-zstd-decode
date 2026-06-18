@@ -8,5 +8,5 @@ settings set auto-confirm true
 script import os; os.environ["LLDB_CAPTURE_AGGRESSIVE"] = "1"
 script import os; os.environ.setdefault("LLDB_CAPTURE_SYMBOL_HUNT", "1")
 
-command script import "/Users/patrickchiho/Projects/wechat-zstd-decode/lldb/lldb_capture_setup.py"
+script import os, lldb; repo = os.environ.get("WECHAT_ZSTD_REPO") or (os.path.dirname(os.getcwd()) if os.path.basename(os.getcwd()) == "lldb" else os.getcwd()); setup = os.path.join(repo, "lldb", "lldb_capture_setup.py"); lldb.debugger.HandleCommand(f'command script import "{setup}"')
 wcdb_capture_run

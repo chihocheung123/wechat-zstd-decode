@@ -7,12 +7,16 @@ mkdir -p "$WORKSPACE"
 set -euo pipefail
 
 EXPORT="$WORKSPACE"
+VALIDATE_SCRIPT="${REPO_ROOT}/scripts/validate_dict5.py"
+SCAN_MODULE="${REPO_ROOT}/scripts/_migration_dict5_scan_v6.py"
+export WECHAT_ZSTD_REPO="$REPO_ROOT"
+export WECHAT_ZSTD_WORKSPACE="$WORKSPACE"
+export WECHAT_ZSTD_VALIDATE_SCRIPT="$VALIDATE_SCRIPT"
 cd "$EXPORT"
 
 # shellcheck source=_wechat_app_detect.sh
-source "${EXPORT}/_wechat_app_detect.sh"
+source "${REPO_ROOT}/bin/_wechat_app_detect.sh"
 
-SCAN_MODULE="${EXPORT}/_migration_dict5_scan.py"
 LOG="${EXPORT}/migration_capture_run.log"
 SUMMARY="${EXPORT}/migration_capture_summary.txt"
 APP_MODE="auto"
@@ -117,7 +121,7 @@ printf '' > "$LOG"
     -o 'settings set auto-confirm true' \
     -o "process attach --pid ${PID}" \
     -o "command script import \"${SCAN_MODULE}\"" \
-    -o 'migration_capture_90s' \
+    -o 'migration_capture_90s_v6' \
     -o 'detach' \
     -o 'quit'
 } 2>&1 | tee -a "$LOG"
@@ -132,7 +136,7 @@ fi
 
 VALID_RC=1
 if [[ -f real_dict_5.bin ]] || [[ "$CAPTURED" -gt 0 ]]; then
-  python3 "${EXPORT}/validate_dict5.py" || VALID_RC=$?
+  python3 "$VALIDATE_SCRIPT" "${EXPORT}/real_dict_5.bin" || VALID_RC=$?
 else
   echo "未產生 real_dict_5*.bin — 請在掃描期間開啟「備份與遷移」後重試"
 fi
