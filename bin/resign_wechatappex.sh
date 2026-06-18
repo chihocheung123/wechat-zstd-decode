@@ -150,13 +150,20 @@ echo "Resigning Mach-O binaries in bundle ..."
 # Order: leaf Mach-O files first, then .framework sub-bundles (innermost to outermost),
 # then the top-level .app bundle last.
 
-# Step 1: sign all leaf Mach-O files (not inside a sub-bundle's Contents)
+# Step 1: sign all leaf Mach-O files NOT inside any sub-bundle
+# (Exclude files inside .framework/.appex bundles — those get signed as a bundle in Step 2)
 while IFS= read -r -d '' f; do
   resign_binary "$f"
-done < <(find "$APPEX_DEST" -type f -not -name "*.plist" -not -name "*.nib" -print0)
+done < <(find "$APPEX_DEST" -type f \
+           -not -path "*/*.framework/*" \
+           -not -path "*/*.appex/*" \
+           -not -name "*.plist" -not -name "*.nib" -print0)
 
 # Step 2: sign nested .framework and .appex sub-bundles (deepest-first)
-while IFS= read -r -d '' bundle; do
+# Use path-length sort — BSD sort on macOS does not support -z (GNU-only).
+# Longer paths = deeper bundles, so sort descending by length ensures leaf-first ordering.
+while IFS= read -r bundle; do
+  [[ -z "$bundle" ]] && continue
   echo "  codesign bundle: $(basename "$bundle")"
   if codesign --force --sign - \
       --entitlements "$ENTITLEMENTS_TMP" \
@@ -167,8 +174,8 @@ while IFS= read -r -d '' bundle; do
     echo "  WARNING: codesign failed for bundle $bundle" >&2
     RESIGN_ERRORS=$((RESIGN_ERRORS + 1))
   fi
-done < <(find "$APPEX_DEST" \( -name "*.framework" -o -name "*.appex" \) -type d -print0 | \
-         sort -rz)   # reverse sort = deeper paths first
+done < <(find "$APPEX_DEST" \( -name "*.framework" -o -name "*.appex" \) -type d | \
+         awk '{ print length($0) "\t" $0 }' | sort -rn | cut -f2-)
 
 # Step 3: sign the top-level bundle last
 if codesign --force --sign - \

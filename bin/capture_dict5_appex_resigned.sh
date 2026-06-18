@@ -58,9 +58,10 @@ fi
 # Non-intrusive check: inspect the binary's entitlements via codesign.
 # Avoids lldb attach/detach which would briefly pause an active process.
 _pid_binary() {
-  # Returns the executable path for a given PID.
-  # ps -p <pid> -o comm= gives the binary path on macOS.
-  ps -p "$1" -o comm= 2>/dev/null | head -1 || true
+  # Returns the executable path for a given PID using lsof txt vnode mapping.
+  # More reliable than ps -o comm= which can return a display name if the
+  # process overwrote argv[0], causing codesign -d to fail with ENOENT.
+  lsof -p "$1" -a -d txt -Fn 2>/dev/null | awk '/^n/{print; exit}' | cut -c2- || true
 }
 
 _has_get_task_allow() {
@@ -115,11 +116,9 @@ if [[ -z "$TARGET_PID" ]]; then
       echo ""
       echo "Troubleshooting:"
       echo "  1. Ensure WeChat-Resigned.app is running (not App Store WeChat)."
-      echo "  2. Run ./bin/resign_wechatappex.sh to resign the WeChatAppEx bundle,"
-      echo "     then launch it manually alongside WeChat-Resigned.app."
-      echo "  3. If WeChatAppEx is embedded inside WeChat-Resigned.app bundle,"
-      echo "     you may need to resign the entire WeChat.app (not just the helper)."
-      echo "     See docs/APPEX_RESIGNED_CAPTURE.txt"
+      echo "  2. Preferred: run ./bin/resign_wechat_full.sh, then open the"
+      echo "     generated WeChat-Resigned-Full.app."
+      echo "  3. Helper-only fallback: ./bin/resign_wechatappex.sh"
       echo ""
       echo "Alternative: use --pid <pid> to force attach a specific PID."
       exit 1
@@ -169,14 +168,13 @@ if [[ "$CAPTURE_RC" -ne 0 ]]; then
     echo "LLDB attach was still denied — the WeChatAppEx binary is not resigned."
     echo ""
     echo "NEXT STEPS:"
-    echo "  Option A (resign the helper separately):"
-    echo "    ./bin/resign_wechatappex.sh"
-    echo "    # Then launch WeChatAppEx-Resigned.app manually (double-click in Finder)"
-    echo "    # Verify it's running: pgrep -lf WeChatAppEx"
+    echo "  Option A (preferred full bundle resign):"
+    echo "    ./bin/resign_wechat_full.sh"
+    echo "    open \"${WORKSPACE}/WeChat-Resigned-Full.app\""
     echo "    ./bin/capture_dict5_appex_resigned.sh"
     echo ""
-    echo "  Option B (resign the full WeChat bundle including all helpers):"
-    echo "    # See docs/APPEX_RESIGNED_CAPTURE.txt — Section: Full Bundle Resign"
+    echo "  Option B (helper-only fallback):"
+    echo "    ./bin/resign_wechatappex.sh"
     echo ""
     echo "  Option C (iOS device capture):"
     echo "    # See docs/IOS_DICT5_README.txt"

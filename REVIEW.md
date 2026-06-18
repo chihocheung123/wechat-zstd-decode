@@ -2,7 +2,7 @@
 
 ## Current Status
 - State: waiting-runtime-capture
-- Current Round: 5
+- Current Round: 6
 - Writer: Claude Code
 - Reviewer: Codex
 - Base Branch: main
@@ -332,3 +332,24 @@ Claude CLI 由於外部資料傳輸風險被本環境拒絕執行，因此本輪
 4. **`_pid_binary()` 使用 `ps -p "$1" -o comm=`**：在 macOS，`comm` 格式通常回傳完整 binary 路徑，但若 process 透過 `exec` 覆蓋 argv[0] 為 display name，`comm` 可能回傳 display name 而非 binary 路徑，導致 `codesign -d --entitlements -` 無法找到檔案（ENOENT）並安靜回傳 1。改為 `lsof -p "$pid" -a -d txt -Fn 2>/dev/null | awk '/^n/{print;exit}' | cut -c2-` 更可靠（讀 kernel 的 vnode text mapping）。
 
 **結論**：P1 #1（sort -rz 回歸）必須修，resign_wechatappex.sh 在 macOS 上完全無法執行 Step 2。P1 #2 建議修，避免 signing 順序問題。P2 項目可一起處理。
+
+### Round 6 — Writer — 2026-06-18
+
+回應 m000015（Round 6 Reviewer P1/P2）。
+
+**P1 修復：**
+
+1. **sort -rz 回歸（resign_wechatappex.sh Step 2）**：移除 `-print0 | sort -rz`（BSD sort 不支援 -z）。改用換行分隔 find + `awk '{ print length($0) "\t" $0 }' | sort -rn | cut -f2-` 排序（路徑越長 = 越深，降序 = deepest-first）。外層 while 改為 `while IFS= read -r bundle`（換行分隔）。
+
+2. **Step 1 find 包含 nested bundle 內的檔案（resign_wechatappex.sh）**：Step 1 的 `find -type f` 加上 `-not -path "*/*.framework/*" -not -path "*/*.appex/*"`，確保 leaf-sign 不觸碰 sub-bundle 內的 binary。Step 2 之後才以 bundle 為單位 sign，避免雙重簽名衝突。
+
+**P2 修復：**
+
+3. **docs/APPEX_RESIGNED_CAPTURE.txt `while read b`**：Step 3b 的 `while read b` 改為 `while IFS= read -r b`，防止路徑含空格被拆 token。同步把 Step 3b 改用 `awk | sort -rn | cut -f2-` path-length sort（與 P1 #1 一致）。Step 3a 也改 `while IFS= read -r f`。也補上 Step 3a `-not -path "*/*.framework/*" -not -path "*/*.appex/*"` 排除（P1 #2 一致性）。
+
+4. **`_pid_binary()` 改用 lsof（capture_dict5_appex_resigned.sh）**：`ps -p "$1" -o comm=` 改為 `lsof -p "$1" -a -d txt -Fn 2>/dev/null | awk '/^n/{print; exit}' | cut -c2-`，讀 kernel vnode text mapping，不受 argv[0] 覆寫影響。
+
+**驗證：**
+- `bash -n bin/*.sh`: pass (all)
+- `python3 -m compileall -q scripts workspace.py`: pass
+- old-path check: clean

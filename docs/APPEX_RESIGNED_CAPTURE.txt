@@ -44,8 +44,10 @@ Strategy B — Resign the FULL WeChat.app bundle (more reliable):
          PLIST
 
     3. Resign all Mach-O binaries (leaf-first), then sub-bundles, then top-level:
-         # Step 3a: leaf Mach-O files (check magic bytes — `file` output varies by OS version)
-         find ~/Desktop/WeChat-Resigned-Full.app -type f | while read f; do
+         # Step 3a: leaf Mach-O files (magic bytes check; exclude files inside sub-bundles)
+         find ~/Desktop/WeChat-Resigned-Full.app -type f \
+              -not -path "*/*.framework/*" -not -path "*/*.appex/*" | \
+         while IFS= read -r f; do
            magic="$(xxd -l 4 -p "$f" 2>/dev/null || true)"
            case "$magic" in
              feedfacf|feedface|cafebabe|cffaedfe|cefaedfe) ;;
@@ -56,9 +58,11 @@ Strategy B — Resign the FULL WeChat.app bundle (more reliable):
          done
 
          # Step 3b: nested .framework / .appex bundles (deepest first)
+         # BSD sort on macOS lacks -z; use path-length sort instead.
          find ~/Desktop/WeChat-Resigned-Full.app \
               \( -name "*.framework" -o -name "*.appex" \) -type d | \
-           sort -r | while read b; do
+           awk '{ print length($0) "\t" $0 }' | sort -rn | cut -f2- | \
+           while IFS= read -r b; do
              codesign --force --sign - --entitlements /tmp/gta.plist \
                       --timestamp=none "$b"
            done
