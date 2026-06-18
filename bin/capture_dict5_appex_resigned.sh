@@ -55,29 +55,37 @@ if [[ ! -f "$SCAN_MODULE" ]]; then
 fi
 
 # --- Discover target PID ---
-find_appex_resigned_pid() {
-  # Strategy 1: look for WeChatAppEx spawned from the resigned bundle in workspace
-  local resigned_bundle="${WORKSPACE}/WeChatAppEx-Resigned.app"
-  if [[ -d "$resigned_bundle" ]]; then
-    local bin_name
-    bin_name="$(basename "$(find "$resigned_bundle/Contents/MacOS" -type f | head -1)" 2>/dev/null || echo 'WeChatAppEx')"
-    local pid
-    pid="$(pgrep -f "$resigned_bundle" 2>/dev/null | head -1 || true)"
-    [[ -n "$pid" ]] && { echo "$pid"; return 0; }
-  fi
+# Non-intrusive check: inspect the binary's entitlements via codesign.
+# Avoids lldb attach/detach which would briefly pause an active process.
+_pid_binary() {
+  # Returns the executable path for a given PID.
+  # ps -p <pid> -o comm= gives the binary path on macOS.
+  ps -p "$1" -o comm= 2>/dev/null | head -1 || true
+}
 
-  # Strategy 2: any WeChatAppEx that we can attach to without sudo
-  # (covers cases where WeChat-Resigned.app spawned it from inside its bundle)
+_has_get_task_allow() {
+  local pid="$1"
+  local binary
+  binary="$(_pid_binary "$pid")"
+  [[ -z "$binary" ]] && return 1
+  codesign -d --entitlements - "$binary" 2>/dev/null | grep -q 'get-task-allow'
+}
+
+find_appex_resigned_pid() {
+  # NOTE: Strategy 1 (pgrep by workspace path) was removed.
+  # When WeChat-Resigned.app spawns WeChatAppEx it uses the binary from inside
+  # its own bundle (not from $WORKSPACE), so pgrep on the workspace path never
+  # matches. Use --pid <pid> to force a specific resigned WeChatAppEx process.
+
+  # Strategy: find any running WeChatAppEx with get-task-allow entitlement.
+  # Uses codesign (non-intrusive) instead of a test lldb attach.
   local pids
   pids="$(pgrep -f 'WeChatAppEx.app/Contents/MacOS/WeChatAppEx' 2>/dev/null || \
           pgrep -x WeChatAppEx 2>/dev/null || true)"
   if [[ -n "$pids" ]]; then
-    # Try each PID to see if we can attach without sudo
     while IFS= read -r pid; do
       [[ -z "$pid" ]] && continue
-      local result
-      result="$(lldb -b -p "$pid" -o 'quit' 2>&1 || true)"
-      if ! grep -qi 'not allowed to attach\|attach failed' <<< "$result"; then
+      if _has_get_task_allow "$pid"; then
         echo "$pid"
         return 0
       fi
@@ -180,11 +188,17 @@ echo ""
 echo "=== Capture complete. Running validation ==="
 
 cd "$WORKSPACE"
-VALID_RC=1
+VALID_RC=0
 if ls real_dict_5*.bin >/dev/null 2>&1; then
-  python3 "$VALIDATE_SCRIPT" "${WORKSPACE}/real_dict_5.bin" 2>&1 | tee -a "$LOG" || VALID_RC=$?
+  if [[ -e "${WORKSPACE}/real_dict_5.bin" || -L "${WORKSPACE}/real_dict_5.bin" ]]; then
+    DICT_PATH="${WORKSPACE}/real_dict_5.bin"
+  else
+    DICT_PATH="${WORKSPACE}/$(ls -t real_dict_5*.bin | head -1)"
+  fi
+  python3 "$VALIDATE_SCRIPT" "$DICT_PATH" 2>&1 | tee -a "$LOG" || VALID_RC=$?
 else
   echo "No real_dict_5*.bin produced."
+  VALID_RC=1
 fi
 
 echo ""

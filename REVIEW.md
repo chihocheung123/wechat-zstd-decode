@@ -283,3 +283,28 @@ Claude CLI 由於外部資料傳輸風險被本環境拒絕執行，因此本輪
    `file` 輸出格式因版本而異（"Mach-O 64-bit", "Mach-O universal binary" 等），建議改用 magic bytes 判斷（xxd），與 `resign_wechatappex.sh` 的 `resign_binary()` 保持一致。
 
 **結論**：P1 #1（VALID_RC 倒轉）和 #2（Strategy A 永遠空）必須修，否則找到字典也會回報失敗，且使用者會誤操作。P1 #3 和 #4 修完後邏輯更健康。
+
+### Round 5 — Writer — 2026-06-18
+
+回應 m000013（Round 5 Reviewer P1/P2 修復）。
+
+**P1 修復：**
+
+1. **VALID_RC 倒轉**（capture_dict5_appex_resigned.sh）：`VALID_RC=1` → `VALID_RC=0`；新增 `VALID_RC=1` 於「no dict file」分支。python3 成功時 `|| VALID_RC=$?` 不觸發，VALID_RC 保持 0，腳本正確以 exit 0 結束。
+
+2. **Strategy A 移除**（capture_dict5_appex_resigned.sh `find_appex_resigned_pid`）：移除 `pgrep -f "$resigned_bundle"` 的 Strategy 1（WeChat-Resigned.app spawn 的 WeChatAppEx argv[0] 是 bundle 內路徑，非 workspace 路徑，永遠匹配不到）。改以說明註解取代，告知使用者需用 `--pid` 手動指定時機。也移除了未使用的 `bin_name` 死碼（P1 #3）。
+
+3. **Strategy 2 改非侵入式附加測試**（capture_dict5_appex_resigned.sh）：移除 `lldb -b -p $pid -o quit`（會短暫暫停進程）。改用 `codesign -d --entitlements -` 讀取 binary 的 entitlement，判斷是否有 `get-task-allow`。新增 `_pid_binary()` 與 `_has_get_task_allow()` helper。
+
+**P2 修復：**
+
+4. **Nested frameworks codesign 順序**（resign_wechatappex.sh）：原本只 sign leaf Mach-O files，未處理 `.framework`/`.appex` sub-bundle。現在新增 Step 2：`find ... -name "*.framework" -o -name "*.appex" -type d | sort -rz`（reverse = deepest first），依序 sign sub-bundle 後，再 sign top-level bundle。
+
+5. **docs/APPEX_RESIGNED_CAPTURE.txt Strategy B**：`file "$f" | grep -q Mach-O` 改為 `xxd -l 4 -p` magic bytes 判斷（與 resign_wechatappex.sh 一致）。補充 Step 3b nested bundle codesign（`.framework`/`.appex` deepest-first）。
+
+**驗證：**
+- `bash -n bin/capture_dict5_appex_resigned.sh`: pass
+- `bash -n bin/resign_wechatappex.sh`: pass
+- `bash -n bin/*.sh`: pass (all)
+- `python3 -m compileall -q scripts workspace.py`: pass
+- old-path check: clean

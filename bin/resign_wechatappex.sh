@@ -146,12 +146,31 @@ resign_binary() {
 }
 
 echo "Resigning Mach-O binaries in bundle ..."
-# Sign leaf binaries first, then the app bundle (codesign requirement)
+# Codesign requires nested bundles to be signed as bundles, not as individual files.
+# Order: leaf Mach-O files first, then .framework sub-bundles (innermost to outermost),
+# then the top-level .app bundle last.
+
+# Step 1: sign all leaf Mach-O files (not inside a sub-bundle's Contents)
 while IFS= read -r -d '' f; do
   resign_binary "$f"
 done < <(find "$APPEX_DEST" -type f -not -name "*.plist" -not -name "*.nib" -print0)
 
-# Sign the top-level bundle last
+# Step 2: sign nested .framework and .appex sub-bundles (deepest-first)
+while IFS= read -r -d '' bundle; do
+  echo "  codesign bundle: $(basename "$bundle")"
+  if codesign --force --sign - \
+      --entitlements "$ENTITLEMENTS_TMP" \
+      --timestamp=none \
+      "$bundle" 2>&1; then
+    RESIGN_COUNT=$((RESIGN_COUNT + 1))
+  else
+    echo "  WARNING: codesign failed for bundle $bundle" >&2
+    RESIGN_ERRORS=$((RESIGN_ERRORS + 1))
+  fi
+done < <(find "$APPEX_DEST" \( -name "*.framework" -o -name "*.appex" \) -type d -print0 | \
+         sort -rz)   # reverse sort = deeper paths first
+
+# Step 3: sign the top-level bundle last
 if codesign --force --sign - \
     --entitlements "$ENTITLEMENTS_TMP" \
     --timestamp=none \
