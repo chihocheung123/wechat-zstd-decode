@@ -79,6 +79,30 @@ wechat_installed_summary() {
   done
 }
 
+# Check whether a binary (by path) has the get-task-allow entitlement.
+# Usage: has_get_task_allow <binary_path>
+# Returns 0 if entitlement present, 1 if absent, 2 if codesign unavailable or path missing.
+has_get_task_allow() {
+  local bin_path="$1"
+  [[ -f "$bin_path" ]] || return 2
+  command -v codesign &>/dev/null || return 2
+  local ents
+  ents="$(codesign -d --entitlements - "$bin_path" 2>/dev/null || true)"
+  echo "$ents" | grep -q 'get-task-allow' && return 0
+  return 1
+}
+
+# Get the executable path of a running PID.
+# Usage: get_pid_executable <pid>
+# Prints the path; returns 0 on success.
+get_pid_executable() {
+  local pid="$1"
+  local path
+  path="$(ps -p "$pid" -o comm= 2>/dev/null | tr -d ' ')"
+  [[ -n "$path" ]] && echo "$path" && return 0
+  return 1
+}
+
 # Sets WECHATAPPEX_PIDS (space-separated) and WECHATAPPEX_COUNT.
 # Returns 0 if at least one WeChatAppEx process is found.
 find_wechatappex_pids() {
