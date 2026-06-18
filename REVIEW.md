@@ -1,8 +1,8 @@
 # Code Review 協作文件
 
 ## Current Status
-- State: waiting-writer
-- Current Round: 1
+- State: waiting-runtime-capture
+- Current Round: 2
 - Writer: Claude Code
 - Reviewer: Codex
 - Base Branch: main
@@ -62,6 +62,42 @@
 - `data/`: only `.gitkeep`; no test blobs or candidate dictionaries
 - WeChat process check: blocked by local environment process-list limitation, no live attach attempted
 
+### Round 2 - Codex Review of `48c1491`
+
+#### Review Verdict
+No blocking issues found in `fix: make dict5 capture workflow portable`.
+
+The first-round P1 blockers are resolved:
+- Capture scripts no longer require scanner/helper/validator files to be pre-copied into workspace.
+- Regular, sudo, and resigned capture entries now import repo `scripts/_migration_dict5_scan_v6.py`.
+- Validator calls now use repo `scripts/validate_dict5.py` while keeping runtime artifacts in `WECHAT_ZSTD_WORKSPACE`.
+- LLDB scripts no longer import the old `/Users/patrickchiho/Projects/wechat-zstd-decode` path.
+
+#### Verification Run
+- `python3 -m compileall -q scripts workspace.py`: pass
+- `bash -n bin/*.sh`: pass
+- `LLDB_CAPTURE_SYNTAX_ONLY=1 ./bin/run_lldb_capture_90s.sh`: pass
+- `WECHAT_ZSTD_REPO=... lldb -b -s lldb/lldb_capture_wcdb.lldb`: import pass; stops at expected no-process condition because this environment cannot list WeChat PID.
+
+#### Residual Risk
+- Live `dict_id=5` capture is still unverified because no WeChat process can be enumerated from this Codex environment.
+- `data/` still lacks `target_4134_from_db.blob` and candidate dictionaries, so `validate_dict5.py` cannot prove a real `real_dict_5.bin` yet.
+
+#### Next Runtime Step
+Run this from an interactive local Terminal, not from Codex sandbox:
+
+```bash
+cd /Users/patrickchiho/Documents/Code/wechat-zstd-decode
+export WECHAT_ZSTD_WORKSPACE="$PWD/data"
+./bin/capture_dict5_migration.sh --app regular
+```
+
+During the 90-second window, use WeChat Backup & Migration actively. If `real_dict_5.bin` appears, validate:
+
+```bash
+python3 scripts/validate_dict5.py data/real_dict_5.bin
+```
+
 ## Writer Response
 ### Round 1 - Codex Local Fallback
 Claude CLI 由於外部資料傳輸風險被本環境拒絕執行，因此本輪由 Codex 以本地方式完成 Writer 修復，並保留 Git/REVIEW.md 交接紀錄。
@@ -107,3 +143,7 @@ Claude CLI 由於外部資料傳輸風險被本環境拒絕執行，因此本輪
 - Codex 完成第一輪 review。
 - 尚未找到 `real_dict_5.bin`；目前阻塞是 workspace 缺少 runtime inputs，以及 capture 腳本路徑不可重現。
 - Codex local fallback 修復第一輪 P1 portability blockers，準備提交 `fix: make dict5 capture workflow portable`。
+
+### Round 2 - 2026-06-18
+- Codex review `48c1491`，未發現 blocking issue。
+- 下一步需要在本機互動 Terminal 執行 runtime capture，Codex 沙盒無法完成 live attach。
