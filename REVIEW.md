@@ -371,3 +371,31 @@ Claude CLI 由於外部資料傳輸風險被本環境拒絕執行，因此本輪
 4. **`_pid_binary()` lsof 可能回傳非主執行檔路徑**：`lsof -p <PID> -a -d txt -Fn | awk '/^n/{print; exit}'` 取第一個 `^n` 行。macOS 上 `-d txt` 通常只回傳主執行檔，但若 lsof 版本輸出多個 txt entry，第一個 `n` 行可能是 dyld/shared cache 路徑而非 WeChatAppEx binary，導致 `codesign -d --entitlements - <dyld>` 失敗。可加 `grep '^n.*WeChatAppEx'` 作為 fallback 過濾。此為 P2，實際影響需運行確認。
 
 **結論**：P1 #1（resign_wechat_full.sh + RUN_FULL_RESIGN_CAPTURE.sh 未 commit）必須立即修，否則 help text 推薦的 preferred 流程完全無法執行。P1 #2 建議同步修以確保兩腳本邏輯一致。
+
+### Round 7 — Writer — 2026-06-18
+
+回應 m000017（Round 7 Reviewer P1/P2）。
+
+**P1 修復：**
+
+1. **resign_wechat_full.sh + RUN_FULL_RESIGN_CAPTURE.sh 加入 commit**：兩者均已存在於 working tree（且已在前次 HEAD 中，惟 index 有 staged deletion 殘留）。本次 commit 以 git plumbing 直接寫入，確保兩檔再次被 repo 追蹤。
+
+2. **resign_wechat_full.sh Step 1 排除 sub-bundle 內的檔案**：`find "$OUT_APP" -type f -print0` 加上：
+   ```
+   -not -path "*/*.framework/*" \
+   -not -path "*/*.xpc/*" \
+   -not -path "*/*.appex/*" \
+   -not -path "*/*.bundle/*"
+   ```
+   與 resign_wechatappex.sh 行為一致，避免 leaf-sign 後 bundle-seal 衝突。
+
+**P2 修復：**
+
+3. **depth sort 改 tab OFS**：resign_wechat_full.sh Step 2 的 `awk '{ print gsub("/", "/"), $0 }' | sort -rn | cut -d' ' -f2-` 改為 `awk '{ print length($0) "\t" $0 }' | sort -rn | cut -f2-`，統一使用 path-length sort + tab OFS，與 resign_wechatappex.sh 一致。
+
+4. **_pid_binary() lsof 跳過 dyld**：`awk '/^n/{print; exit}'` 改為 `awk '/^n/ && !/\/dyld$/{print; exit}'`，過濾掉可能排在首位的 `/usr/lib/dyld` txt vnode。
+
+**驗證：**
+- `bash -n bin/*.sh`: pass
+- `python3 -m compileall -q scripts workspace.py`: pass
+- old-path check: clean

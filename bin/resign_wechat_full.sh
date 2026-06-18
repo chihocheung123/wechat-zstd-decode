@@ -107,7 +107,12 @@ while IFS= read -r -d '' f; do
   [[ -f "$f" ]] || continue
   is_macho "$f" || continue
   sign_path "$f"
-done < <(find "$OUT_APP" -type f -print0)
+done < <(find "$OUT_APP" -type f \
+    -not -path "*/*.framework/*" \
+    -not -path "*/*.xpc/*" \
+    -not -path "*/*.appex/*" \
+    -not -path "*/*.bundle/*" \
+    -print0)
 
 echo ""
 echo "Signing embedded bundles deepest first ..."
@@ -122,7 +127,7 @@ done < <(
     -name "*.xpc" -o \
     -name "*.appex" -o \
     -name "*.bundle" \
-  \) -print | awk '{ print gsub("/", "/"), $0 }' | sort -rn | cut -d' ' -f2-
+  \) -print | awk '{ print length($0) "\t" $0 }' | sort -rn | cut -f2-
 )
 
 echo ""
