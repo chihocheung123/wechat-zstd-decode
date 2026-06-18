@@ -1,0 +1,6 @@
+attach --pid 47582
+breakpoint set -r CompressionCenter -s roam_server
+breakpoint command add -s CompressionCenter -o "bt 2" -o "register read x0 x1 x2 x3" -o "continue"
+process continue
+process detach
+quit

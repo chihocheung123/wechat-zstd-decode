@@ -1,0 +1,58 @@
+WeChat ZSTD dict_id=5 capture — minimal path for 100% iOS export recovery
+============================================================================
+Generated: 2026-06-15
+
+WHEN dict_5 IS REQUIRED
+-----------------------
+- iOS backup export sqlite: ALL WCDB_CT_Message=2 blobs use ZSTD dict_id=5
+- Bulk scan: 15,395 / 15,395 export zstd frames failed raw decode (0%)
+- 米迷 chat alone: 1,058 compressed blobs in export; 312 are before Mac sync (Apr 20–May 18)
+
+WHEN dict_5 IS NOT REQUIRED
+---------------------------
+- Mac wechat-decrypt decrypted DB: ALL WCDB_CT_message_content=4 blobs use dict_id=0
+- Bulk scan: 1,853 / 1,853 decrypted zstd frames decode with raw ZSTD (100%)
+- Run: cd wechat-decrypt && python3 export_messages.py  (or export_chat.py for 米迷)
+
+COVERAGE GAP (米迷 chat)
+------------------------
+- iOS export: 4,068 messages (2026-04-20 .. 2026-06-04)
+- Mac decrypted: 1,633 messages (2026-05-19 .. 2026-06-04)
+- ~2,435 messages exist ONLY in iOS export → need dict_5 for their compressed blobs
+
+CAPTURE STEPS (WeChat-Debug, PID running)
+-----------------------------------------
+1. Open Terminal:
+   cd $WECHAT_ZSTD_WORKSPACE (default: ./data)
+
+2. Start 90s capture:
+   ./run_lldb_capture_90s.sh
+
+3. DURING the 90-second window — interact with WeChat-Debug:
+   - Open chat 米迷
+   - Scroll through Apr–May 2026 (messages showing as link/quote bubbles)
+   - Tap/expand Type-49 quote-reply bubbles (especially 2026-04-20 and 2026-05-07)
+   - Also scroll Jun 4 area (msg 4134 region) as fallback
+
+4. After capture, verify:
+   grep HIT lldb_capture_hits.log
+   ls -la real_dict_5*.bin dict_from_*.bin
+
+5. Test dictionary:
+   python3 test_real_dict_5.py
+   python3 bulk_decode_messages.py --mimi-only --try-dicts
+
+6. If OK, re-export HTML:
+   python3 scripts/export_mimi_html.py $WECHAT_ZSTD_WORKSPACE (default: ./data) \
+     /Users/patrickchiho/Downloads/00008150-001623410A08401C \
+     $WECHAT_ZSTD_WORKSPACE (default: ./data)/real_dict_5.bin
+
+ALTERNATIVE: HYBRID EXPORT (no dict_5 for recent messages)
+----------------------------------------------------------
+1. Decrypted Mac messages (May 19+): use existing wechat-decrypt JSON:
+   wechat_files/wxid_.../米迷/message_0.db.json  (already plaintext)
+2. Older iOS-only messages (Apr 20–May 18): still need dict_5 OR re-sync to Mac
+   and re-run wechat-decrypt after loading full history in WeChat Mac client
+
+NOTE: dict_5 is loaded transiently during wcdb_decompress — capture requires
+active UI interaction while LLDB breakpoints are armed. Passive 90s wait = 0 hits.

@@ -1,0 +1,10 @@
+# dict_resolve only @ slide+0x256a20
+# Interactive (stop each hit): lldb -p <PID> -s lldb_capture_dict_resolve_only.lldb
+# Auto-continue: LLDB_DICT_RESOLVE_AUTO_CONTINUE=1 lldb -p <PID> -s lldb_capture_dict_resolve_only.lldb
+#   or: wcdb_manual_dict_resolve auto  (after import)
+
+settings set target.process.stop-on-sharedlibrary-events false
+settings set auto-confirm true
+
+command script import "/Users/patrickchiho/Projects/wechat-zstd-decode/lldb/lldb_capture_setup.py"
+wcdb_manual_dict_resolve

@@ -1,0 +1,90 @@
+# WeChat dict id=5 — roam_migration breakpoint capture
+# Batch: LLDB_BATCH=1 WECHAT_PID=<pid> lldb -b -s lldb_interactive_dict_dump.lldb
+
+settings set target.process.stop-on-sharedlibrary-events false
+settings set auto-confirm true
+
+script
+import lldb, os, subprocess, re, time
+export_dir = os.environ.get('EXPORT_DIR', '/Users/patrickchiho/Projects/wechat-zstd-decode/lldb')
+log_path = os.path.join(export_dir, 'lldb_breakpoint_hits.log')
+run_sec = int(os.environ.get('LLDB_RUN_SEC', '45'))
+batch = os.environ.get('LLDB_BATCH', '1') == '1'
+
+def pid():
+    if os.environ.get('WECHAT_PID'):
+        return int(os.environ['WECHAT_PID'])
+    r = subprocess.run(['pgrep','-fl','WeChat-Debug.app/Contents/MacOS/WeChat'], capture_output=True, text=True)
+    for line in r.stdout.splitlines():
+        if 'WeChatAppEx' in line or 'crashpad' in line:
+            continue
+        return int(line.split()[0])
+    return 0
+
+debugger = lldb.debugger
+target = debugger.CreateTarget(None)
+p = pid()
+err = lldb.SBError()
+proc = target.AttachToProcessWithID(debugger.GetListener(), p, err)
+if not err.Success():
+    raise RuntimeError(err.GetCString())
+res = lldb.SBCommandReturnObject()
+debugger.GetCommandInterpreter().HandleCommand('image list -o roam_migration', res)
+slide = None
+for line in res.GetOutput().splitlines():
+    if line.strip().startswith('['):
+        m = re.search(r'0x[0-9a-fA-F]+', line)
+        if m:
+            slide = int(m.group(0), 16)
+            break
+if slide is None:
+    raise RuntimeError('roam_migration slide not found')
+open(log_path,'a').write(f"\n=== interactive/batch {time.strftime('%F %T')} pid={p} slide=0x{slide:x} ===\n")
+offs = [('udf_dict_resolve',0x256a20),('udf_alt_1e78e8',0x1e78e8),('udf_entry_226728',0x226728)]
+hit = {'n':0}
+
+def dump(addr, tag):
+    if not addr: return
+    e = lldb.SBError()
+    b = proc.ReadMemory(addr, 112640, e)
+    if e.Success() and b:
+        path = os.path.join(export_dir, f'dict_5_from_context_{tag}.bin')
+        open(path,'wb').write(b)
+        open(log_path,'a').write(f'  dump {path} from 0x{addr:x}\n')
+
+def handler(frame, bp_loc, extra_args, internal_dict):
+    hit['n'] += 1
+    name = bp_loc.GetBreakpoint().GetName() or 'bp'
+    x = [frame.FindRegister(f'x{i}').GetValueAsUnsigned() for i in range(7)]
+    open(log_path,'a').write(f"HIT#{hit['n']} {name} pc=0x{frame.GetPC():x} " + ' '.join(f'x{i}={x[i]:#x}' for i in range(7)) + '\n')
+    debugger.GetCommandInterpreter().HandleCommand('register read x0 x1 x2 x3 x4 x5 x6', lldb.SBCommandReturnObject())
+    debugger.GetCommandInterpreter().HandleCommand('memory read -c 64 $x1', lldb.SBCommandReturnObject())
+    if name == 'udf_dict_resolve':
+        dump(x[1], 'resolve_x1')
+        dump(x[2], 'resolve_x2')
+        for off in (0,8,0x10,0x18):
+            e=lldb.SBError(); pb=proc.ReadMemory(x[0]+off,8,e)
+            if e.Success():
+                import struct
+                ptr=struct.unpack('<Q', pb)[0]
+                dump(ptr, f'resolve_x0_{off:x}')
+    if batch:
+        return False
+    return hit['n'] == 1
+
+for nm, off in offs:
+    bp = target.BreakpointCreateByAddress(slide+off)
+    bp.SetScriptCallbackFunction('handler')
+    bp.SetBreakpointKind(nm)
+    bp.AddName(nm)
+
+listener = debugger.GetListener()
+end = time.time() + run_sec
+proc.Continue()
+while time.time() < end:
+    event = lldb.SBListener()
+    # poll
+    time.sleep(0.2)
+proc.Detach()
+endscript
+quit

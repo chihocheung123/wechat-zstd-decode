@@ -1,0 +1,6 @@
+settings set interpreter.require-overwrite true
+settings set target.process.stop-on-sharedlibrary-events false
+command script import /Users/patrickchiho/Projects/wechat-zstd-decode/lldb/lldb_capture_setup.py
+breakpoint set -a 0x1134b2a20 -N dict_resolve
+breakpoint command add -F lldb_capture_setup.roam_bp_hit dict_resolve
+process continue

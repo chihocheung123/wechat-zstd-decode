@@ -1,0 +1,8 @@
+attach --pid 47582
+breakpoint set -a 0x113afaa20
+breakpoint set -a 0x113b15758
+breakpoint command add 1 -o "frame variable" -o "register read x0 x1 x2 x3" -o "continue"
+breakpoint command add 2 -o "frame variable" -o "register read x0 x1 x2 x3" -o "continue"
+process continue
+detach
+quit

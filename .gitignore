@@ -1,0 +1,33 @@
+# Workspace data (blobs, logs, captures)
+data/*
+!data/.gitkeep
+
+# Binary artifacts
+*.blob
+*.bin
+*.sqlite
+*.sqlite3
+*.db
+*.zdict
+
+# Logs and runtime output
+*.log
+logs/
+db/
+carved_dicts/
+fw_cand_*/
+deep_*/
+pat_cand_*/
+
+# macOS / editor
+.DS_Store
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# WeChat app bundles (not part of this repo)
+*.app/
+
+# Sensitive exports
+DECODED_*.xml

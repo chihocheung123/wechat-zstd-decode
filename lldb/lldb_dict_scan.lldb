@@ -1,0 +1,6 @@
+attach --pid 47582
+settings set target.process.stop-on-sharedlibrary-events false
+continue
+memory find -s '\x37\xa4\x30\xec' 0x0 0xffffffffffffffff
+detach
+quit

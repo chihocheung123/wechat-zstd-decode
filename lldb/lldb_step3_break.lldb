@@ -1,0 +1,6 @@
+attach --pid 47582
+image lookup -r -n ZSTDDict
+image lookup -r -n CompressionCenter
+image lookup -r -n registerDict
+detach
+quit

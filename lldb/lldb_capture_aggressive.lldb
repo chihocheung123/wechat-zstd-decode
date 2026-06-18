@@ -1,0 +1,12 @@
+# WeChat-Debug WCDB capture — aggressive roam_migration offsets + symbol hunt
+# Env: BATCH_CAPTURE_SECONDS, LLDB_CAPTURE_AGGRESSIVE=1 (set below), optional LLDB_CAPTURE_SQLITE=1
+# Do NOT use bare "script" — use import + wcdb_capture_run.
+
+settings set target.process.stop-on-sharedlibrary-events false
+settings set auto-confirm true
+
+script import os; os.environ["LLDB_CAPTURE_AGGRESSIVE"] = "1"
+script import os; os.environ.setdefault("LLDB_CAPTURE_SYMBOL_HUNT", "1")
+
+command script import "/Users/patrickchiho/Projects/wechat-zstd-decode/lldb/lldb_capture_setup.py"
+wcdb_capture_run

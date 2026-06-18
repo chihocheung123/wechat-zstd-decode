@@ -1,0 +1,8 @@
+# WeChat-Debug WCDB capture (batch). Env: BATCH_CAPTURE_SECONDS, BATCH_CAPTURE_DETACH, BATCH_CAPTURE_QUIT
+# Do NOT use bare "script" — it opens interactive Python (>>>). Use import + wcdb_capture_run.
+
+settings set target.process.stop-on-sharedlibrary-events false
+settings set auto-confirm true
+
+command script import "/Users/patrickchiho/Projects/wechat-zstd-decode/lldb/lldb_capture_setup.py"
+wcdb_capture_run

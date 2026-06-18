@@ -1,0 +1,12 @@
+# Manual dict_resolve — interactive stops (no bare "script", no -b)
+# Bash:
+#   cd /Users/patrickchiho/Projects/wechat-zstd-decode/lldb
+#   PID=$(pgrep -lf 'WeChat-Debug.app/Contents/MacOS/WeChat' | awk '/\/MacOS\/WeChat$/ {print $1; exit}')
+#   lldb -p "$PID" -s lldb_manual_dict_resolve.lldb
+# (lldb): process continue  — scroll 米迷 CT=2; on each stop: continue
+
+settings set target.process.stop-on-sharedlibrary-events false
+settings set auto-confirm true
+
+command script import "/Users/patrickchiho/Projects/wechat-zstd-decode/lldb/lldb_capture_setup.py"
+wcdb_manual_dict_resolve

@@ -1,0 +1,7 @@
+settings set target.process.stop-on-sharedlibrary-events false
+settings set auto-confirm true
+settings set interpreter.require-overwrite true
+command script import "/Users/patrickchiho/Projects/wechat-zstd-decode/lldb/lldb_capture_setup.py"
+wcdb_memory_dict_scan
+detach
+quit
