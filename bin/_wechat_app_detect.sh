@@ -78,3 +78,34 @@ wechat_installed_summary() {
     fi
   done
 }
+
+# Sets WECHATAPPEX_PIDS (space-separated) and WECHATAPPEX_COUNT.
+# Returns 0 if at least one WeChatAppEx process is found.
+find_wechatappex_pids() {
+  WECHATAPPEX_PIDS=""
+  WECHATAPPEX_COUNT=0
+  local pids
+  pids="$(pgrep -f 'WeChatAppEx.app/Contents/MacOS/WeChatAppEx' 2>/dev/null | head -5 || true)"
+  if [[ -z "$pids" ]]; then
+    pids="$(pgrep -x WeChatAppEx 2>/dev/null | head -5 || true)"
+  fi
+  [[ -z "$pids" ]] && return 1
+  WECHATAPPEX_PIDS="$(echo "$pids" | tr '\n' ' ' | sed 's/ $//')"
+  WECHATAPPEX_COUNT="$(echo "$pids" | grep -c . || true)"
+  return 0
+}
+
+# Check whether roam_migration is loaded in a given PID (quick image-list only, no scan).
+# Usage: wechatappex_has_roam_migration <pid>
+# Prints the slide+path line and returns 0 if found, 1 otherwise.
+wechatappex_has_roam_migration() {
+  local pid="$1"
+  local result
+  result="$(lldb -b -p "$pid" \
+    -o 'settings set auto-confirm true' \
+    -o 'image list -o -f' \
+    -o 'quit' 2>/dev/null \
+    | grep -i 'roam_migration' | head -3 || true)"
+  [[ -n "$result" ]] && { echo "$result"; return 0; }
+  return 1
+}

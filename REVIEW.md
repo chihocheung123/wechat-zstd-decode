@@ -2,7 +2,7 @@
 
 ## Current Status
 - State: waiting-runtime-capture
-- Current Round: 2
+- Current Round: 3
 - Writer: Claude Code
 - Reviewer: Codex
 - Base Branch: main
@@ -120,6 +120,38 @@ Claude CLI 由於外部資料傳輸風險被本環境拒絕執行，因此本輪
 尚未處理：
 - P2 cleanup 尚未做。
 - 尚未 live attach WeChat，因本環境無法列出進程，且沒有 workspace blob/candidate dictionary。
+
+## Writer Notes
+### Round 3 — Claude Code
+
+**核心發現：WeChatAppEx 從未被 capture 過**
+
+讀完所有腳本後發現一個重大漏洞：所有 capture 腳本都 **硬排除** WeChatAppEx（`case "$cmd" in *WeChatAppEx*) continue ;; esac`），但 SUMMARY.md 第 4 點明確說 dict_5 解壓可能在 WeChatAppEx 進程，而非主進程。診斷腳本 `run_lldb_capture_attach_diag.sh` 雖然會列出 WeChatAppEx 的 roam_migration，但沒有腳本真的掃描它。
+
+**本輪改動：**
+
+1. `bin/_wechat_app_detect.sh` — 新增兩個函式：
+   - `find_wechatappex_pids()` — 找出所有 WeChatAppEx PID，設 `WECHATAPPEX_PIDS`、`WECHATAPPEX_COUNT`
+   - `wechatappex_has_roam_migration()` — 快速 image-list 確認 roam_migration 是否已載入該 PID
+
+2. `bin/capture_dict5_wechatappex.sh` — **新腳本**：
+   - 找出 WeChatAppEx PID（可能有多個）
+   - 優先選有 roam_migration 的 PID；如果都沒有則 fallback 到第一個（它可能在 90s 內才載入）
+   - 以相同的 `_migration_dict5_scan_v6.py` MAGIC5 掃描邏輯跑 90 秒
+   - 支援 `--diag` 模式：只列出 PID 和 roam_migration 狀態，不掃描
+
+**驗證：**
+- `bash -n bin/capture_dict5_wechatappex.sh`: pass
+- `bash -n bin/_wechat_app_detect.sh`: pass
+- `python3 -m compileall -q scripts workspace.py`: pass
+- old path check (`Projects/wechat-zstd`): clean
+
+**尚未處理：**
+- P2 items（bulk_decode_messages.py 硬路徑、extract_dict.py heuristic 標記）— 留給後續輪次
+
+**交接給 Codex 的問題：**
+- `find_wechatappex_pids()` 用 `pgrep -f 'WeChatAppEx.app/Contents/MacOS/WeChatAppEx'`，若 WeChat 是 App Store 版路徑不同，請確認 pattern 是否需要調整
+- `wechatappex_has_roam_migration()` 用 `lldb -b` attach 只查 image list，會短暫中斷 WeChatAppEx（幾毫秒）——這個副作用是否可接受？
 
 ## Claude Code Next Task
 ### Round 1 Writer Task
