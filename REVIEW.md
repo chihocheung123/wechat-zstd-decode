@@ -2,7 +2,7 @@
 
 ## Current Status
 - State: waiting-runtime-capture
-- Current Round: 4
+- Current Round: 5
 - Writer: Claude Code
 - Reviewer: Codex
 - Base Branch: main
@@ -247,3 +247,39 @@ Claude CLI 由於外部資料傳輸風險被本環境拒絕執行，因此本輪
 ### Round 2 - 2026-06-18
 - Codex review `48c1491`，未發現 blocking issue。
 - 下一步需要在本機互動 Terminal 執行 runtime capture，Codex 沙盒無法完成 live attach。
+
+### Round 5 — Reviewer — 2026-06-18
+
+審 commits e6c3d7b + 9a2a6e7（Round 4 Writer）：`resign_wechatappex.sh`、`capture_dict5_appex_resigned.sh`、`docs/APPEX_RESIGNED_CAPTURE.txt`。
+
+**P1 — Blocking**
+
+1. **`VALID_RC` 邏輯倒轉**（`capture_dict5_appex_resigned.sh` L183–201）：
+   `VALID_RC=1` 作為 default，`python3 validate_dict5.py ... || VALID_RC=$?` 只在失敗時改值。若 validation 成功（exit 0），`||` 條件不觸發，`VALID_RC` 仍為 1，腳本以 `exit 1` 結束。
+   → 找到字典也會被視為失敗。修法：改 `VALID_RC=0`，讓 `|| VALID_RC=$?` 只捕捉失敗碼。
+
+2. **Strategy A（resigned bundle pgrep）永遠找不到 process**（`find_appex_resigned_pid` Strategy 1）：
+   `pgrep -f "$resigned_bundle"` 搜尋的是 `$WORKSPACE/WeChatAppEx-Resigned.app/...` 路徑。但 WeChat-Resigned.app 啟動 WeChatAppEx 時，會從自己 bundle 內的 XPC 路徑 spawn，argv[0] 是 WeChat-Resigned.app 內的路徑，不是 workspace 裡的 resigned copy。
+   → Strategy 1 永遠匹配不到任何 PID，腳本只能靠 Strategy 2（任意 WeChatAppEx PID）。應移除 Strategy 1 或改為文件說明，不要讓使用者誤以為 resigned bundle 會被自動偵測到。
+
+3. **`bin_name` 未使用的變數**（`capture_dict5_appex_resigned.sh` L62–63）：
+   ```bash
+   bin_name="$(basename ... || echo 'WeChatAppEx')"
+   ```
+   `bin_name` 之後從未引用，是死碼。應刪除或實際使用在 pgrep pattern。
+
+4. **Strategy 2 test-attach 干擾活躍進程**：
+   ```bash
+   result="$(lldb -b -p "$pid" -o 'quit' 2>&1 || true)"
+   ```
+   對每個 WeChatAppEx PID 做真正的 attach/detach，會短暫暫停進程。若 WeChatAppEx 正在執行 RPC 或與 WeChat 主進程通信，這會造成 timeout 或狀態損壞。應改用 `taskpolicy -c $pid 2>&1` 或 `codesign -d --entitlements - /proc/$pid/exe` 等非 intrusive 方式判斷是否有 get-task-allow。
+
+**P2 — Non-blocking**
+
+5. **Nested frameworks codesign 順序**（`resign_wechatappex.sh`）：
+   若 `WeChatAppEx.app/Contents/Frameworks/` 內有 `.framework` sub-bundle，用 `find -type f` 只 sign 個別 binary，不 sign sub-bundle。但 codesign 要求 nested bundle 要以 bundle 為單位 sign，否則最終 `codesign -v` 驗證會失敗（`embedded bundle ... invalid`）。建議補一個 `find "$APPEX_DEST" -name "*.framework" -type d` 迴圈先簽 frameworks，再簽 top-level bundle。
+
+6. **`docs/APPEX_RESIGNED_CAPTURE.txt` Strategy B 用 `file | grep -q Mach-O` 不夠可靠**：
+   `file` 輸出格式因版本而異（"Mach-O 64-bit", "Mach-O universal binary" 等），建議改用 magic bytes 判斷（xxd），與 `resign_wechatappex.sh` 的 `resign_binary()` 保持一致。
+
+**結論**：P1 #1（VALID_RC 倒轉）和 #2（Strategy A 永遠空）必須修，否則找到字典也會回報失敗，且使用者會誤操作。P1 #3 和 #4 修完後邏輯更健康。
