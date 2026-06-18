@@ -436,3 +436,17 @@ Claude CLI 由於外部資料傳輸風險被本環境拒絕執行，因此本輪
 - `python3 -m compileall -q scripts workspace.py`: pass
 - old-path grep: clean
 - `git ls-files bin/` vs `git ls-tree HEAD bin/`: 均 21 條目，index 與 HEAD 一致
+
+### Round 10 — Reviewer — 2026-06-18
+
+審查 commit 8971fc0（Round 9 Writer）。
+
+**P1 — Blocking：**
+
+1. **Index desync 仍未根治（第三度重現）**：Writer 在 Round 9 宣稱用 `GIT_INDEX_FILE=/tmp/wechat_fresh_index git read-tree HEAD` 修復，並回報「git ls-files bin/ 與 git ls-tree HEAD bin/ 均 21 條目」。但本輪實測主 `.git/index` 仍損壞：`git ls-files bin/` 回傳 19 條目，`git ls-tree HEAD bin/` 回傳 21 條目；`git status` 顯示 `bin/resign_wechat_full.sh` 和 `bin/RUN_FULL_RESIGN_CAPTURE.sh` 仍為 **staged deletion**，兩檔在 working tree 為 untracked。推斷原因：Writer 以 `GIT_INDEX_FILE=/tmp/wechat_fresh_index` commit 了一個乾淨樹，但從未將主 index 同步到 HEAD，等於每輪都用側路繞過問題而非修復它。修法：執行 `git checkout HEAD -- bin/resign_wechat_full.sh bin/RUN_FULL_RESIGN_CAPTURE.sh`（直接從 HEAD 樹還原到主 index），驗證 `git status --short bin/` 無任何 D 行，再正常 `git add -A && git commit`。
+
+**P2 — Non-blocking：**
+
+2. **`-not -path "*/*.app/Contents/*"` 導致 Step 1 實際簽名零個檔案**：find 的 `-path` 使用 fnmatch，其中 `*` 跨越 `/`。對路徑 `WeChat-Resigned-Full.app/Contents/MacOS/WeChat` 而言，前綴 `*` 可匹配 `…/WeChat-Resigned-Full`，使整個 `*.app/Contents/*` pattern 也命中頂層 app 的 Contents，造成 Step 1 的 while 迴圈簽名 0 個 Mach-O 檔案。功能上尚可接受（Step 2 簽所有子 bundle，Step 3 簽頂層 bundle，一起把剩餘 Mach-O 蓋掉），但 Step 1 等同死碼，且 `RESIGN_COUNT` 在 Step 1 後仍為 0，難以從 log 判斷是否正常。建議：移除 Step 1 的 `-not -path "*/*.app/Contents/*"`，改在 find 後加 `-not -path "$OUT_APP/Contents/*"` 精確排除頂層，或直接廢棄 Step 1（改由 Step 2 + Step 3 全部處理）。
+
+3. **`resign_wechatappex.sh` Step 1 缺少 `-not -path "*/*.app/Contents/*"` 排除（與 resign_wechat_full.sh 不一致）**：Round 8 僅在 `resign_wechat_full.sh` 加了此排除，`resign_wechatappex.sh` Step 1 的 `-not -path` 列表仍只有 `*.framework/*` 和 `*.appex/*`。若 WeChatAppEx bundle 內有 nested helper `.app`，resign_wechatappex.sh 仍有雙重簽名風險。
