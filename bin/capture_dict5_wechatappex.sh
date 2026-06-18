@@ -78,6 +78,7 @@ echo ""
 
 # --- Check roam_migration presence in each ---
 TARGET_PID=""
+ATTACH_DENIED=false
 for pid in $WECHATAPPEX_PIDS; do
   echo -n "PID ${pid}: checking for roam_migration... "
   result=""
@@ -89,6 +90,7 @@ for pid in $WECHATAPPEX_PIDS; do
   else
     rc=$?
     if [[ "$rc" -eq 2 ]]; then
+      ATTACH_DENIED=true
       echo "attach denied"
       echo "  ${result}"
       if [[ "$USE_SUDO" != "true" ]]; then
@@ -103,6 +105,19 @@ for pid in $WECHATAPPEX_PIDS; do
     fi
   fi
 done
+
+if [[ "$ATTACH_DENIED" == "true" ]] && [[ "$USE_SUDO" == "true" ]]; then
+  echo ""
+  echo "sudo lldb was also denied by macOS task_for_pid / hardened runtime."
+  echo "Stop retrying this App Store WeChatAppEx process; the scan never started."
+  echo ""
+  echo "Next viable paths:"
+  echo "  1. Use WeChat-Resigned.app with get-task-allow:"
+  echo "     ./bin/capture_dict5_resigned.sh"
+  echo "  2. Capture on an iOS device during WeChat backup/export."
+  echo "     See docs/IOS_DICT5_README.txt"
+  exit 3
+fi
 
 if [[ "$DIAG_ONLY" == "true" ]]; then
   echo ""
