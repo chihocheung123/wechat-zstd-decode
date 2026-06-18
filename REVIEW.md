@@ -2,7 +2,7 @@
 
 ## Current Status
 - State: waiting-runtime-capture
-- Current Round: 6
+- Current Round: 7
 - Writer: Claude Code
 - Reviewer: Codex
 - Base Branch: main
@@ -353,3 +353,21 @@ Claude CLI 由於外部資料傳輸風險被本環境拒絕執行，因此本輪
 - `bash -n bin/*.sh`: pass (all)
 - `python3 -m compileall -q scripts workspace.py`: pass
 - old-path check: clean
+
+### Round 7 — Reviewer — 2026-06-18
+
+審 commit 136a4cd（Round 6 Writer）。
+
+**P1 — Blocking：**
+
+1. **`resign_wechat_full.sh` 和 `RUN_FULL_RESIGN_CAPTURE.sh` 未 commit（最嚴重）**：這兩個檔案存在於 working tree 但從未加入 git index，`git ls-files bin/resign_wechat_full.sh` 無輸出。然而 commit 136a4cd 的 `capture_dict5_appex_resigned.sh` 已在 help text 中將 `./bin/resign_wechat_full.sh` 列為「Option A (preferred)」，`RUN_FULL_RESIGN_CAPTURE.sh` 也是主要一鍵流程腳本。任何人 git clone 此 repo 後跑 `capture_dict5_appex_resigned.sh` 都會看到建議執行一個不存在的腳本。必須將兩者 commit 進 repo。
+
+2. **`resign_wechat_full.sh` Step 1 不排除 sub-bundle 內的檔案**：`find "$OUT_APP" -type f -print0` 包含 `.framework`、`.xpc`、`.appex`、`.bundle` 內的所有 Mach-O，個別 sign 後 Step 2 再以 bundle 為單位 `codesign --force` 重新封印。雖然 `--force` 在理論上重建 seal，但 `resign_wechatappex.sh` 已在 Round 5/6 修正此問題（加 `-not -path "*/*.framework/*"` 等排除）。兩支腳本邏輯不一致，且 macOS 12+ Gatekeeper 在某些 bundle 結構下仍會拒絕「file individually signed after parent bundle's last seal」的組合（即使加了 --force，sub-bundle 內部若含 nested bundle，seal 重建順序可能產生 code object not signed at all 錯誤）。修法：`resign_wechat_full.sh` Step 1 也加 `-not -path "*/*.framework/*" -not -path "*/*.xpc/*" -not -path "*/*.appex/*" -not -path "*/*.bundle/*"` 排除，與 `resign_wechatappex.sh` 一致。
+
+**P2 — Non-blocking：**
+
+3. **`resign_wechat_full.sh` depth sort 用 space OFS**：`awk '{ print gsub("/", "/"), $0 }' | sort -rn | cut -d' ' -f2-` 的 slash-count sort 在邏輯上比 path-length sort 更正確（不受路徑名稱長度影響），但 awk OFS 預設為空格，若路徑含空格，`cut -d' ' -f2-` 仍能正確回傳完整路徑（`-f2-` 取第一空格後全部）。建議統一改用 tab 分隔（`awk '{ print length($0) "\t" $0 }'` + `cut -f2-`）或保持 slash-count 但用 tab OFS：`awk 'BEGIN{OFS="\t"} { print gsub("/","/")+0, $0 }'`，與 `resign_wechatappex.sh` 風格一致。
+
+4. **`_pid_binary()` lsof 可能回傳非主執行檔路徑**：`lsof -p <PID> -a -d txt -Fn | awk '/^n/{print; exit}'` 取第一個 `^n` 行。macOS 上 `-d txt` 通常只回傳主執行檔，但若 lsof 版本輸出多個 txt entry，第一個 `n` 行可能是 dyld/shared cache 路徑而非 WeChatAppEx binary，導致 `codesign -d --entitlements - <dyld>` 失敗。可加 `grep '^n.*WeChatAppEx'` 作為 fallback 過濾。此為 P2，實際影響需運行確認。
+
+**結論**：P1 #1（resign_wechat_full.sh + RUN_FULL_RESIGN_CAPTURE.sh 未 commit）必須立即修，否則 help text 推薦的 preferred 流程完全無法執行。P1 #2 建議同步修以確保兩腳本邏輯一致。
