@@ -9,9 +9,10 @@ mkdir -p "$WORKSPACE"
 # that helper directly.
 #
 # Usage:
-#   ./bin/capture_dict5_wechatappex.sh [--diag]
+#   ./bin/capture_dict5_wechatappex.sh [--diag] [--sudo]
 #
 #   --diag   Only print WeChatAppEx PID(s) and whether roam_migration is loaded; don't scan.
+#   --sudo   Use sudo lldb attach. Required if normal attach says "Not allowed to attach to process".
 set -euo pipefail
 
 EXPORT="$WORKSPACE"
@@ -27,12 +28,28 @@ export WECHAT_ZSTD_VALIDATE_SCRIPT="$VALIDATE_SCRIPT"
 source "${REPO_ROOT}/bin/_wechat_app_detect.sh"
 
 DIAG_ONLY=false
+USE_SUDO=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --diag) DIAG_ONLY=true; shift ;;
+    --sudo) USE_SUDO=true; shift ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
 done
+
+if [[ "$USE_SUDO" == "true" ]]; then
+  export WECHAT_LLDB_SUDO=1
+  if ! sudo -n true 2>/dev/null; then
+    echo ""
+    echo "═══════════════════════════════════════════════════════════════"
+    echo "  即將執行 sudo — 請在下方輸入您的 macOS 登入密碼"
+    echo "  (Password prompt appears below; typing is hidden.)"
+    echo "═══════════════════════════════════════════════════════════════"
+    echo ""
+  fi
+else
+  export WECHAT_LLDB_SUDO=0
+fi
 
 echo ""
 echo "╔══════════════════════════════════════════════════════════════╗"
@@ -52,19 +69,38 @@ if ! find_wechatappex_pids; then
 fi
 
 echo "Found ${WECHATAPPEX_COUNT} WeChatAppEx process(es): ${WECHATAPPEX_PIDS}"
+if [[ "$USE_SUDO" == "true" ]]; then
+  echo "Attach mode: sudo lldb"
+else
+  echo "Attach mode: lldb"
+fi
 echo ""
 
 # --- Check roam_migration presence in each ---
 TARGET_PID=""
 for pid in $WECHATAPPEX_PIDS; do
   echo -n "PID ${pid}: checking for roam_migration... "
-  if result="$(wechatappex_has_roam_migration "$pid" 2>/dev/null)"; then
+  result=""
+  if result="$(wechatappex_has_roam_migration "$pid" 2>&1)"; then
     echo "FOUND"
     echo "  ${result}"
     TARGET_PID="$pid"
     break
   else
-    echo "not found (may still load it later)"
+    rc=$?
+    if [[ "$rc" -eq 2 ]]; then
+      echo "attach denied"
+      echo "  ${result}"
+      if [[ "$USE_SUDO" != "true" ]]; then
+        echo ""
+        echo "This process denied normal LLDB attach. Re-run:"
+        echo "  ./bin/capture_dict5_wechatappex.sh --sudo --diag"
+        echo "  ./bin/capture_dict5_wechatappex.sh --sudo"
+        exit 2
+      fi
+    else
+      echo "not found (may still load it later)"
+    fi
   fi
 done
 
@@ -93,6 +129,11 @@ fi
 echo ""
 echo "Target PID: ${TARGET_PID}"
 echo "Output dir: ${EXPORT}"
+if [[ "$USE_SUDO" == "true" ]]; then
+  echo "Attach: sudo lldb"
+else
+  echo "Attach: lldb"
+fi
 echo ""
 echo ">>> Starting 90-second dict_id=5 scan on WeChatAppEx PID ${TARGET_PID} <<<"
 echo ""
@@ -103,19 +144,42 @@ echo "  3. OR open 備份與遷移 → start migration"
 echo ""
 
 printf '' > "$LOG"
+set +e
 {
   echo "=== wechatappex capture start $(date -Iseconds) pid=${TARGET_PID} ==="
   export MIGRATION_CAPTURE_APP_LABEL="WeChatAppEx"
   export MIGRATION_CAPTURE_APP_PATH="WeChatAppEx"
-  lldb -b \
-    -o 'settings set auto-confirm true' \
-    -o "process attach --pid ${TARGET_PID}" \
-    -o "command script import \"${SCAN_MODULE}\"" \
-    -o 'migration_capture_90s_v6' \
-    -o 'detach' \
-    -o 'quit'
+  if [[ "$USE_SUDO" == "true" ]]; then
+    sudo lldb -b \
+      -o 'settings set auto-confirm true' \
+      -o "process attach --pid ${TARGET_PID}" \
+      -o "command script import \"${SCAN_MODULE}\"" \
+      -o 'migration_capture_90s_v6' \
+      -o 'detach' \
+      -o 'quit'
+  else
+    lldb -b \
+      -o 'settings set auto-confirm true' \
+      -o "process attach --pid ${TARGET_PID}" \
+      -o "command script import \"${SCAN_MODULE}\"" \
+      -o 'migration_capture_90s_v6' \
+      -o 'detach' \
+      -o 'quit'
+  fi
   echo "=== wechatappex capture end $(date -Iseconds) ==="
 } 2>&1 | tee -a "$LOG"
+CAPTURE_RC=${PIPESTATUS[0]}
+set -e
+
+if [[ "$CAPTURE_RC" -ne 0 ]]; then
+  echo ""
+  echo "Capture command failed with rc=${CAPTURE_RC}."
+  if grep -qi 'not allowed to attach\|attach failed' "$LOG" 2>/dev/null && [[ "$USE_SUDO" != "true" ]]; then
+    echo "Normal attach was denied. Re-run:"
+    echo "  ./bin/capture_dict5_wechatappex.sh --sudo"
+  fi
+  exit "$CAPTURE_RC"
+fi
 
 echo ""
 echo "=== Capture complete. Running validation... ==="

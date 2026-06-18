@@ -98,14 +98,39 @@ find_wechatappex_pids() {
 # Check whether roam_migration is loaded in a given PID (quick image-list only, no scan).
 # Usage: wechatappex_has_roam_migration <pid>
 # Prints the slide+path line and returns 0 if found, 1 otherwise.
+# If WECHAT_LLDB_SUDO=1, uses sudo lldb for hardened processes.
 wechatappex_has_roam_migration() {
   local pid="$1"
-  local result
-  result="$(lldb -b -p "$pid" \
+  local result rc
+  local lldb_cmd=(lldb -b -p "$pid")
+  if [[ "${WECHAT_LLDB_SUDO:-0}" == "1" ]]; then
+    lldb_cmd=(sudo lldb -b -p "$pid")
+  fi
+
+  local restore_errexit=0
+  case "$-" in
+    *e*) restore_errexit=1; set +e ;;
+  esac
+
+  result="$("${lldb_cmd[@]}" \
     -o 'settings set auto-confirm true' \
     -o 'image list -o -f' \
-    -o 'quit' 2>/dev/null \
-    | grep -i 'roam_migration' | head -3 || true)"
-  [[ -n "$result" ]] && { echo "$result"; return 0; }
+    -o 'quit' 2>&1)"
+  rc=$?
+
+  if [[ "$restore_errexit" -eq 1 ]]; then
+    set -e
+  fi
+
+  if [[ "$rc" -ne 0 ]] || grep -qi 'not allowed to attach\|attach failed' <<<"$result"; then
+    echo "$result" | grep -iE 'not allowed to attach|attach failed|error:' | head -3 >&2 || true
+    return 2
+  fi
+
+  result="$(echo "$result" | grep -i 'roam_migration' | head -3 || true)"
+  [[ -n "$result" ]] && {
+    echo "$result"
+    return 0
+  }
   return 1
 }
