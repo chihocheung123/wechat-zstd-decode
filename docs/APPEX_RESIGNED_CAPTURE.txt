@@ -1,0 +1,100 @@
+WeChatAppEx get-task-allow Resign — Capture Guide
+==================================================
+Date: 2026-06-18
+
+WHY THIS IS NEEDED
+------------------
+App Store WeChat (and its helper WeChatAppEx) is signed with hardened runtime
+and lacks the get-task-allow entitlement. Even sudo lldb cannot obtain
+task_for_pid on such processes (KERN_FAILURE 0x5 from the kernel).
+
+WeChat-Resigned.app (the main binary) already has get-task-allow.
+However, when WeChat launches its WeChatAppEx helper, it uses the binary
+from INSIDE the WeChat.app bundle — not from WeChat-Resigned.app. That
+WeChatAppEx binary is still hardened, so lldb attach still fails.
+
+SOLUTION: Resign WeChatAppEx itself.
+
+TWO RESIGN STRATEGIES
+---------------------
+
+Strategy A — Resign WeChatAppEx sub-bundle only (faster):
+  ./bin/resign_wechatappex.sh
+  This copies WeChatAppEx.app out of WeChat.app, resigns it with
+  get-task-allow, and puts it in $WORKSPACE/WeChatAppEx-Resigned.app.
+  You then launch it manually from Finder (or via open command).
+  WeChat must also be running (Resigned version) for migration to work.
+
+Strategy B — Resign the FULL WeChat.app bundle (more reliable):
+  This ensures that WeChatAppEx spawned BY WeChat-Resigned.app is also
+  resigned (the whole bundle is re-signed as a unit).
+
+  Steps:
+    1. Copy the App Store WeChat.app to a local path (outside /Applications):
+         cp -R /Applications/WeChat.app ~/Desktop/WeChat-Resigned-Full.app
+
+    2. Create entitlements plist:
+         cat > /tmp/gta.plist << 'PLIST'
+         <?xml version="1.0" encoding="UTF-8"?>
+         <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+           "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+         <plist version="1.0"><dict>
+           <key>com.apple.security.get-task-allow</key><true/>
+         </dict></plist>
+         PLIST
+
+    3. Resign all Mach-O binaries (deep, leaf-first):
+         find ~/Desktop/WeChat-Resigned-Full.app -type f | while read f; do
+           file "$f" | grep -q Mach-O || continue
+           codesign --force --sign - --entitlements /tmp/gta.plist \
+                    --timestamp=none "$f"
+         done
+
+    4. Resign the app bundle itself:
+         codesign --force --sign - --entitlements /tmp/gta.plist \
+                  --timestamp=none ~/Desktop/WeChat-Resigned-Full.app
+
+    5. Open the resigned bundle:
+         open ~/Desktop/WeChat-Resigned-Full.app
+
+    6. Run capture (targets WeChatAppEx spawned from this bundle):
+         ./bin/capture_dict5_appex_resigned.sh
+
+RUNNING THE CAPTURE
+-------------------
+After either strategy:
+  1. Launch WeChat-Resigned (full or main binary).
+  2. Log in and open 備份與遷移 → start migration.
+  3. In a Terminal:
+       cd /Users/patrickchiho/Documents/Code/wechat-zstd-decode
+       ./bin/capture_dict5_appex_resigned.sh
+  4. Keep migration active for the full 90-second window.
+  5. Check output:
+       ls -la data/real_dict_5*.bin
+       python3 scripts/validate_dict5.py data/real_dict_5.bin
+
+DIAGNOSING ATTACH FAILURES
+---------------------------
+If capture_dict5_appex_resigned.sh still reports "Not allowed to attach":
+  codesign -d --entitlements - /path/to/WeChatAppEx 2>&1 | grep get-task
+  # should show: com.apple.security.get-task-allow = true
+
+If it's missing, the binary was not resigned correctly. Re-run resign script
+or use Strategy B (full bundle resign).
+
+Check SIP status:
+  csrutil status
+  # "enabled" is fine — get-task-allow bypasses hardened runtime without SIP off
+  # SIP only needs to be off for kernel extensions and system binary modification
+
+LOG FILES
+---------
+  data/appex_resigned_capture.log    — lldb stdout/stderr + scan module output
+  data/real_dict_5.bin               — captured dictionary (if found)
+
+REFERENCES
+----------
+  bin/resign_wechatappex.sh           — resign helper script
+  bin/capture_dict5_appex_resigned.sh — capture script
+  docs/IOS_DICT5_README.txt          — iOS device fallback path
+  docs/CAPTURE_V2_README.txt         — main WeChat-Resigned.app capture notes

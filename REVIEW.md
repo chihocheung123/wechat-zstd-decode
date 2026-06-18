@@ -179,6 +179,48 @@ Claude CLI 由於外部資料傳輸風險被本環境拒絕執行，因此本輪
 - `find_wechatappex_pids()` 用 `pgrep -f 'WeChatAppEx.app/Contents/MacOS/WeChatAppEx'`，若 WeChat 是 App Store 版路徑不同，請確認 pattern 是否需要調整
 - `wechatappex_has_roam_migration()` 用 `lldb -b` attach 只查 image list，會短暫中斷 WeChatAppEx（幾毫秒）——這個副作用是否可接受？
 
+### Round 4 — Writer — 2026-06-18
+
+**核心問題：App Store WeChatAppEx hardened runtime 封死 LLDB attach**
+
+根據 m000008 Codex runtime 結果：`--sudo --diag` 仍回傳 "Not allowed to attach to process"，確認是 SIP / task_for_pid 核心層級拒絕，非權限問題。停止重試 App Store WeChatAppEx。
+
+**根本原因分析：**
+`capture_dict5_resigned.sh` 針對主 WeChat binary 做 get-task-allow resign，但 WeChat 啟動時 helper WeChatAppEx 是從原始 WeChat.app bundle 內的二進制啟動的，仍保有 hardened runtime。resign 主程式並不能讓 helper 變得可 attach。
+
+**本輪改動：**
+
+1. `bin/resign_wechatappex.sh` — **新腳本**：
+   - 在 WeChat.app bundle 中自動尋找 WeChatAppEx.app sub-bundle（搜尋 XPCServices、PlugIns、LoginItems 等路徑）
+   - 將 WeChatAppEx.app 複製到 `$WORKSPACE/WeChatAppEx-Resigned.app`
+   - 對所有 Mach-O binary 做 ad-hoc resign with get-task-allow，去除 hardened runtime
+   - 驗證最終 entitlement 並印出 next-step 指示
+
+2. `bin/capture_dict5_appex_resigned.sh` — **新腳本**：
+   - 等待可 attach 的 WeChatAppEx 進程（最多 60s，可設 `--wait`）
+   - Strategy 1：找 `$WORKSPACE/WeChatAppEx-Resigned.app` 啟動的進程
+   - Strategy 2：找任何 WeChatAppEx PID，測試能否在不用 sudo 的情況下 attach（覆蓋 WeChat-Resigned-Full.app 場景）
+   - 90 秒 v6 MAGIC5 掃描，驗證 real_dict_5.bin
+   - attach 仍被拒時列出明確 next steps（Strategy A/B/iOS）
+
+3. `docs/APPEX_RESIGNED_CAPTURE.txt` — **新文件**：
+   - Strategy A：只 resign WeChatAppEx sub-bundle（用新腳本）
+   - Strategy B：resign 整個 WeChat.app bundle（確保 WeChat 啟動的所有 helper 都是 get-task-allow）
+   - SIP 狀態說明（get-task-allow 不需要關 SIP）
+   - 診斷 entitlement 的方法
+
+**驗證：**
+- `bash -n bin/resign_wechatappex.sh`: pass
+- `bash -n bin/capture_dict5_appex_resigned.sh`: pass
+- `bash -n bin/*.sh`: pass (all)
+- `python3 -m compileall -q scripts workspace.py`: pass
+- old path check (`Projects/wechat-zstd`): clean
+
+**尚未處理：**
+- WeChatAppEx 是否真的以 XPCService sub-bundle 存在，或只是 bare binary（resign 腳本有 fallback `find` 搜尋，但需 runtime 驗證）
+- WeChat-Resigned-Full.app（整個 bundle resign）的 Strategy B 需手動執行，腳本只提供文件指引
+- P2 items 未處理
+
 ## Claude Code Next Task
 ### Round 1 Writer Task
 你是 Writer Agent。請在 `/Users/patrickchiho/Documents/Code/wechat-zstd-decode` 修復第一輪 Codex review 的 P1 問題，目標是讓 capture 流程可以從乾淨 repo + workspace 跑起來。
