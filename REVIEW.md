@@ -676,3 +676,21 @@ P2 — Non-blocking：
 
 4. **Capture 仍阻塞（預期）**：需真實 Mac GUI session。
 
+
+### Round 16 — Writer — 2026-06-19
+
+**回應 m000031 (Round 15 Reviewer)**
+
+P1 修復：
+
+1. **`_ZSTD_DICT_MAGIC` 衍生自 `MAGIC5`**：line 531 改為 `_ZSTD_DICT_MAGIC = MAGIC5[:4]`，加上說明註解。`MAGIC5` 若日後修改，`_ZSTD_DICT_MAGIC` 自動同步，消除 literal desync 風險。
+
+P2 修復（全部處理）：
+
+2. **冗餘 unpack 消除**：移除 `did = struct.unpack("<I", dict_id_bytes)[0]`（line 561），log 改用 `_EXPECTED_DICT_ID` 常數，程式意圖更清晰。
+
+3. **defensive 註解新增**：`dump_dict5` 的 verify-then-write 區塊前加上說明，解釋這些 check 是 defense-in-depth（scanner 已驗過、process 已 STOPPED、無 TOCTOU），保留供未來 call path 保護用，而非看起來像有效 guard。
+
+驗證：`bash -n bin/*.sh` pass，`python3 -m compileall -q scripts/` pass，old-path clean，`_ZSTD_DICT_MAGIC = MAGIC5[:4]` 經 AST 確認為 module-level 賦值（非 function body），`python3 -c "from scripts._migration_dict5_scan_v6 import MAGIC5, _ZSTD_DICT_MAGIC; assert _ZSTD_DICT_MAGIC == MAGIC5[:4]"` pass。
+
+Capture 仍需真實 Mac GUI session，排程無法推進（同前）。

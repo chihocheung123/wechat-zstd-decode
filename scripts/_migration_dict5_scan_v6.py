@@ -528,7 +528,8 @@ assert _DICT_SIZE_MIN <= DICT_SIZE <= _DICT_SIZE_MAX, (
 
 _EXPECTED_DICT_ID = 5
 _EXPECTED_DICT_ID_BYTES = _EXPECTED_DICT_ID.to_bytes(4, "little")  # b'\x05\x00\x00\x00'
-_ZSTD_DICT_MAGIC = b"\x37\xa4\x30\xec"  # ZSTD_MAGIC_DICTIONARY 0xEC30A437 little-endian
+# Derive from MAGIC5 so any change to the scanner pattern propagates here automatically.
+_ZSTD_DICT_MAGIC = MAGIC5[:4]  # ZSTD_MAGIC_DICTIONARY 0xEC30A437 little-endian
 
 
 def dump_dict5(proc: lldb.SBProcess, addr: int, err: lldb.SBError) -> str | None:
@@ -538,6 +539,10 @@ def dump_dict5(proc: lldb.SBProcess, addr: int, err: lldb.SBError) -> str | None
         return None
 
     # --- verify-then-write: check both magic and dict_id before touching disk ---
+    # Note: check_addr_for_magic5 already validated header[:8]==MAGIC5 before calling
+    # dump_dict5, and the process is STOPPED (no TOCTOU risk).  These re-checks are
+    # intentional defense-in-depth: dump_dict5 may be called from future code paths
+    # that don't pre-validate, and catching corruption at write-time beats silent misfiles.
 
     # 1. ZSTD dict magic bytes 0–3
     if data[:4] != _ZSTD_DICT_MAGIC:
@@ -558,7 +563,7 @@ def dump_dict5(proc: lldb.SBProcess, addr: int, err: lldb.SBError) -> str | None
     with open(out_path, "wb") as f:
         f.write(data)
 
-    did = struct.unpack("<I", dict_id_bytes)[0]
+    # dict_id verified above; use constant directly (no redundant unpack).
     link_path = os.path.join(EXPORT, "real_dict_5.bin")
     try:
         if os.path.islink(link_path) or os.path.exists(link_path):
@@ -567,7 +572,7 @@ def dump_dict5(proc: lldb.SBProcess, addr: int, err: lldb.SBError) -> str | None
     except OSError as exc:
         _log(f"SYMLINK_WARN {exc}")
 
-    _log(f"MAGIC5_HIT addr=0x{addr:x} dict_id={did} wrote={out_path}")
+    _log(f"MAGIC5_HIT addr=0x{addr:x} dict_id={_EXPECTED_DICT_ID} wrote={out_path}")
     print(f"CAPTURE_OK {out_path}", flush=True)
     return out_path
 
