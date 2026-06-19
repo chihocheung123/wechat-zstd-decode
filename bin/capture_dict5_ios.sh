@@ -8,13 +8,25 @@
 #   developer (default) — non-jailbroken, DeveloperDiskImage required
 #   jailbreak           — jailbroken device, debugserver running on device
 #
-# PREREQUISITES (developer mode)
-#   brew install ideviceinstaller libimobiledevice
-#   idevicedebugserverproxy 1234   (run in a separate terminal before this script)
-#   or use: ios-deploy --debug --bundle-id com.tencent.xin
+# PREREQUISITES (developer mode — non-jailbroken)
+#   idevicedebugserverproxy alone does NOT attach WeChat automatically.
+#   You must first launch WeChat on-device via ios-deploy (or Xcode) so it
+#   starts under debugserver supervision, THEN run this script to connect.
+#
+#   Recommended flow:
+#     Step 1: brew install ios-deploy libimobiledevice
+#     Step 2 (terminal A): ios-deploy --debug --bundle-id com.tencent.xin
+#             — this launches WeChat and blocks with debugserver on USB port
+#     Step 3 (terminal B): idevicedebugserverproxy ${PORT}
+#             — proxies debugserver to localhost:${PORT}
+#     Step 4: run this script (it connects via process connect)
+#
+#   Alternative: use idevicedebugserverproxy ${PORT} AND manually trigger a
+#   WeChat relaunch via Xcode's Attach to Process, then run this script.
 #
 # PREREQUISITES (jailbreak mode)
 #   On device: /Developer/usr/bin/debugserver *:${PORT} -waitfor WeChat
+#   (This attaches debugserver as WeChat launches — no separate ios-deploy needed)
 #   ssh tunnel optional: ssh -L 1234:127.0.0.1:1234 root@DEVICE_IP
 #
 # After 90 s scan, if real_dict_5.bin appears, validate with:

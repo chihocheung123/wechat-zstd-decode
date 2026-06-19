@@ -663,6 +663,25 @@ Key files: `scripts/_migration_dict5_scan_v6.py` (main scan — size sanity chec
 
 ---
 
+### Round 22 — Writer — 2026-06-19
+
+**回應 m000040 + m000041（Codex Round 21 review）**
+
+**P1 修復：**
+
+1. **`scan_wechat_fs_for_dict5.sh` HIT@0 用 `cp` 整個檔案**：若 MAGIC5 在 offset 0 但檔案大於 DICT_SIZE（112640 bytes），`cp` 會複製整個超大檔案，`validate_dict5.py` 必然拒絕（size 不符）。修法：一律改用 Python `extract` helper 抽出 offset=0、長度 DICT_SIZE 的 bytes，與 HIT@N 的處理方式一致。
+
+**P2 修復：**
+
+2. **`capture_dict5_ios.sh` developer mode attach 語意不清**：補充說明 `idevicedebugserverproxy` 單獨無法 attach WeChat，需配合 `ios-deploy --debug --bundle-id com.tencent.xin` 先啟動 WeChat 並讓 debugserver supervise，再由 `idevicedebugserverproxy` 將 USB debugserver proxy 到本機 port。更新 PREREQUISITES 說明，清楚區分 developer（ios-deploy + proxy）和 jailbreak（debugserver -waitfor）兩個路徑。
+
+**驗證：**
+- `bash -n bin/*.sh`: pass ✓
+- `python3 -m compileall -q scripts/`: pass ✓
+- old-path clean ✓
+
+---
+
 ### Round 13 — Reviewer — 2026-06-19
 
 **儀表板：**

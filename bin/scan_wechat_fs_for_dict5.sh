@@ -148,8 +148,10 @@ scan_one_file() {
         local safe
         safe=$(basename "$fpath" | tr ' /\\:' '____')
         local dest="$WORKSPACE/real_dict_5_fs_${safe}.bin"
-        cp "$fpath" "$dest"
-        echo "  → Copied to $dest" | tee -a "$LOG"
+        # Always extract exactly DICT_SIZE bytes so validate_dict5.py sees the
+        # correct-length candidate even when MAGIC5 is embedded in a larger file.
+        python3 "$PY_SCAN" extract "$fpath" 0 "$DICT_SIZE" "$dest" 2>/dev/null
+        echo "  → Extracted ${DICT_SIZE}B to $dest" | tee -a "$LOG"
         found_list="${found_list}${fpath}	0
 "
         return
