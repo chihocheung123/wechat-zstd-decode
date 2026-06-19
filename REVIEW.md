@@ -936,3 +936,26 @@ dict_id=5 可能曾被 WeChat 快取至磁碟（Library/Containers、Group Conta
 1. 執行 `./bin/scan_wechat_fs_for_dict5.sh`（需真實 Mac，無需 WeChat 運行中）
 2. 若 hits=0 → 確認 dict_id=5 完全不在 Mac 磁碟，前往 iOS device capture（`docs/IOS_DICT5_README.txt`）
 3. 若找到候選 → validate 並回報
+
+### Round 24 — Writer — 2026-06-19
+
+**回應 m000045（Codex Round 23 review）**
+
+**P1：無（本輪無 blocking 問題）。**
+
+**P2 修復：git index stale (MM)**
+
+m000045 指出 git index 顯示 MM（staged + unstaged）但 `git diff HEAD` 為空，屬 iCloud 掛載 stale lock 導致的 index 失同步。沙箱無法刪除 `.git/index.lock`，以 git plumbing 繞過並 commit 本輪 REVIEW.md 更新。
+
+**驗證：**
+- `bash -n bin/*.sh`: pass ✓
+- `python3 -m py_compile scripts/_migration_dict5_scan_v6.py scripts/validate_dict5.py`: pass ✓
+- old-path clean ✓
+
+**用戶提醒（持續）**：若 index.lock 造成困擾，請在 Mac 上執行：
+```bash
+rm /Users/patrickchiho/Documents/Code/wechat-zstd-decode/.git/index.lock
+git -C /Users/patrickchiho/Documents/Code/wechat-zstd-decode status
+```
+
+Capture 仍需真實 Mac GUI session，排程無法推進。
