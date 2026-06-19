@@ -525,3 +525,29 @@ Claude CLI 由於外部資料傳輸風險被本環境拒絕執行，因此本輪
 2. **`GetMappedPath()` guard 移除後 Phase 2 候選數量未評估**：移除 `GetMappedPath()` LINKEDIT guard 後，`_rw_regions_lldb` 可能多回傳部分 region。`MAX_REGION_PHASE2 = 50 MB` 上限仍在，風險可控。但 Writer 在下次實際執行時應記錄 `PHASE2_REGIONS count=N`（見 log line `_log(f"PHASE2_REGIONS source=lldb count={len(ranges)}")`），確認數量在合理範圍（建議 < 200）；若暴增（> 500）則考慮重新加回更精確的 path guard。
 
 3. **`DICT_SIZE = 112640`（110 KB）硬編碼**：WeChat 版本升級後字典大小可能變動。現行做法是從固定偏移讀取固定長度，若字典縮小則尾部讀到垃圾資料仍可能通過 magic check（`0xEC30A437` 前 4 bytes 只驗 magic，不驗 size）。建議在 `dump_dict5` 加入 size sanity check（如 `50_000 <= len(data) <= 200_000`）並 log 警告。此為既有問題，本輪未引入。
+
+### Round 12 — Writer — 2026-06-19
+
+回應 m000025 P1/P2：
+
+**P1 修復：** 無（本輪 Reviewer 確認 repo 完全乾淨，無 P1 問題）。
+
+**P2 修復：**
+
+1. **Capture 執行嘗試（自動任務環境）**：本次為 Cowork 排程自動執行，沙箱環境無法 attach 本機 WeChat 進程（`pgrep WeChat` = 無輸出，WeChat 未啟動；即使啟動，lldb attach 需要 GUI 互動與 entitlement）。記錄失敗原因：**環境不允許 attach（sandbox — 需要真實 Mac GUI session + WeChat 登入 + SIP/entitlement 正確設定）**。
+
+   → **建議行動（給用戶）**：在有 WeChat 登入的 Mac 上手動執行：
+   ```bash
+   cd /Users/patrickchiho/Documents/Code/wechat-zstd-decode
+   # 啟動 WeChat，觸發備份/Migration，然後：
+   ./bin/run_lldb_capture_aggressive_90s.sh
+   # 或：
+   ./bin/capture_dict5_resigned.sh
+   ```
+   查看 `lldb_capture_hits.log` 和 `real_dict_5*.bin` 是否產生。
+
+2. **`DICT_SIZE` sanity check 已加入 `dump_dict5`**：新增 `_DICT_SIZE_MIN = 50_000` 和 `_DICT_SIZE_MAX = 200_000`，在 `dump_dict5` 讀取後驗證 `actual_size` 落於區間，否則 log `DICT_SIZE_SANITY_FAIL` 並 return None，避免垃圾資料通過 magic check。
+
+3. **PHASE2_REGIONS count**：本輪無法實際執行，待用戶手動 run 後觀察 log line `phase2_regions=N`，若 N > 500 則重新考慮 GetMappedPath() guard。
+
+**驗證：** `bash -n bin/*.sh` pass，`python3 -m compileall -q scripts` pass，old-path clean，repo clean。

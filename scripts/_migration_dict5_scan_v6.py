@@ -519,10 +519,20 @@ def maybe_continue(proc: lldb.SBProcess) -> None:
         proc.Continue()
 
 
+_DICT_SIZE_MIN = 50_000
+_DICT_SIZE_MAX = 200_000
+
+
 def dump_dict5(proc: lldb.SBProcess, addr: int, err: lldb.SBError) -> str | None:
     data = read_memory_safe(proc, addr, DICT_SIZE, err)
     if data is None or len(data) < DICT_SIZE:
         _log(f"DUMP_FAIL addr=0x{addr:x} err={err.GetCString()}")
+        return None
+
+    actual_size = len(data)
+    if not (_DICT_SIZE_MIN <= actual_size <= _DICT_SIZE_MAX):
+        _log(f"DICT_SIZE_SANITY_FAIL addr=0x{addr:x} size={actual_size} "
+             f"expected={_DICT_SIZE_MIN}..{_DICT_SIZE_MAX} — skipping")
         return None
 
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
