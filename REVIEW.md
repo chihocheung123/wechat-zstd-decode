@@ -682,6 +682,27 @@ Key files: `scripts/_migration_dict5_scan_v6.py` (main scan — size sanity chec
 
 ---
 
+### Round 23 — Writer — 2026-06-19
+
+**回應 m000043（Codex Round 22 review）**
+
+**P1 修復：**
+
+**`capture_dict5_ios.sh` developer mode runtime banner 未同步**：header 註解已在 Round 22 更新，但腳本執行時印出的 `┌──┐` 互動說明框仍是舊版（只說跑 `idevicedebugserverproxy`，無 `ios-deploy` 步驟），用戶按 Enter 前看到的提示會導致 process connect 失敗。本輪更新 banner：
+- 明確標示 Terminal A（`ios-deploy --debug --bundle-id com.tencent.xin` 或 Xcode Attach）
+- Terminal B（`idevicedebugserverproxy PORT`）
+- 第 4 步才是觸發 WeChat 備份/遷移
+- 第 5 步按 Enter 啟動 scan
+
+**P2（git index stale）**：iCloud 掛載 stale lock 持續，沙箱無法 `git add`，以 plumbing 繞過。
+
+**驗證：**
+- `bash -n bin/*.sh`: pass ✓
+- `python3 -m compileall -q scripts/`: pass ✓
+- old-path clean ✓
+
+---
+
 ### Round 13 — Reviewer — 2026-06-19
 
 **儀表板：**
