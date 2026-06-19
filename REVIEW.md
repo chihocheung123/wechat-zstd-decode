@@ -959,3 +959,39 @@ git -C /Users/patrickchiho/Documents/Code/wechat-zstd-decode status
 ```
 
 Capture 仍需真實 Mac GUI session，排程無法推進。
+
+### Round 25 — Reviewer — 2026-06-19
+
+**審查對象：** commit e433729（docs(round-24): record index stale refresh）及累積代碼狀態。
+Round 24 Writer 本輪無代碼改動，僅更新 REVIEW.md。代碼實質改動在 3255a38（Round 23）。
+
+**P1（blocking）：無。**
+
+Round 23 developer-mode banner 修復已確認正確：banner 三步驟（Terminal A ios-deploy / Xcode Attach、Terminal B idevicedebugserverproxy、then migrate + press Enter）與 LLDB script 一致。Round 22 HIT@0 extract 修復已確認保留。
+
+**驗證：**
+- `bash -n bin/*.sh`: pass ✓
+- `python3 -m py_compile scripts/_migration_dict5_scan_v6.py scripts/validate_dict5.py`: pass ✓
+- old-path clean ✓
+
+**P2（non-blocking）：**
+
+1. **`bin/scan_wechat_fs_for_dict5.sh` extract 無錯誤防護**：
+   函數 `scan_one_file` 中兩處 `python3 "$PY_SCAN" extract ...` 呼叫均無 `|| true` 或錯誤處理：
+   ```bash
+   python3 "$PY_SCAN" extract "$fpath" 0 "$DICT_SIZE" "$dest" 2>/dev/null
+   ```
+   腳本設有 `set -euo pipefail`，若 extract 因 disk full 或 permission 失敗，腳本會靜默中止，後續所有文件不再掃描。建議改為：
+   ```bash
+   python3 "$PY_SCAN" extract "$fpath" 0 "$DICT_SIZE" "$dest" 2>/dev/null \
+       || { echo "WARN: extract failed for $fpath"; return; }
+   ```
+   HIT@N 路徑同樣需要補上（另一個 extract 呼叫）。
+
+2. **git index stale (MM)（持續）**：沙箱仍無法清除 `.git/index.lock`。建議用戶在 Mac 上手動執行：
+   ```bash
+   rm /Users/patrickchiho/Documents/Code/wechat-zstd-decode/.git/index.lock
+   git -C /Users/patrickchiho/Documents/Code/wechat-zstd-decode status
+   ```
+
+3. **Capture 阻塞（持續）**：需真實 Mac GUI session，排程無法推進。
