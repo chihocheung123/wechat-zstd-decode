@@ -528,6 +528,7 @@ assert _DICT_SIZE_MIN <= DICT_SIZE <= _DICT_SIZE_MAX, (
 
 _EXPECTED_DICT_ID = 5
 _EXPECTED_DICT_ID_BYTES = _EXPECTED_DICT_ID.to_bytes(4, "little")  # b'\x05\x00\x00\x00'
+_ZSTD_DICT_MAGIC = b"\x37\xa4\x30\xec"  # ZSTD_MAGIC_DICTIONARY 0xEC30A437 little-endian
 
 
 def dump_dict5(proc: lldb.SBProcess, addr: int, err: lldb.SBError) -> str | None:
@@ -536,22 +537,26 @@ def dump_dict5(proc: lldb.SBProcess, addr: int, err: lldb.SBError) -> str | None
         _log(f"DUMP_FAIL addr=0x{addr:x} err={err.GetCString()}")
         return None
 
+    # --- verify-then-write: check both magic and dict_id before touching disk ---
+
+    # 1. ZSTD dict magic bytes 0–3
+    if data[:4] != _ZSTD_DICT_MAGIC:
+        _log(f"MAGIC_MISMATCH addr=0x{addr:x} got={data[:4].hex()} expected={_ZSTD_DICT_MAGIC.hex()}")
+        return None
+
+    # 2. dict_id field bytes 4–7 (no dead-code guard needed: len(data)==DICT_SIZE>=8)
+    dict_id_bytes = data[4:8]
+    if dict_id_bytes != _EXPECTED_DICT_ID_BYTES:
+        did_actual = struct.unpack("<I", dict_id_bytes)[0]
+        _log(f"DICT_ID_MISMATCH addr=0x{addr:x} dict_id={did_actual} expected={_EXPECTED_DICT_ID}")
+        return None
+
+    # --- all checks passed: write to disk ---
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     out_name = f"real_dict_5_{ts}.bin"
     out_path = os.path.join(EXPORT, out_name)
     with open(out_path, "wb") as f:
         f.write(data)
-
-    # Verify dict_id field (bytes 4–7) equals 5 after writing
-    dict_id_bytes = data[4:8] if len(data) >= 8 else b""
-    if dict_id_bytes != _EXPECTED_DICT_ID_BYTES:
-        did_actual = struct.unpack("<I", dict_id_bytes)[0] if len(dict_id_bytes) == 4 else -1
-        _log(f"DICT_ID_MISMATCH addr=0x{addr:x} dict_id={did_actual} expected={_EXPECTED_DICT_ID} — removing")
-        try:
-            os.remove(out_path)
-        except OSError:
-            pass
-        return None
 
     did = struct.unpack("<I", dict_id_bytes)[0]
     link_path = os.path.join(EXPORT, "real_dict_5.bin")
