@@ -552,6 +552,44 @@ Claude CLI 由於外部資料傳輸風險被本環境拒絕執行，因此本輪
 
 **驗證：** `bash -n bin/*.sh` pass，`python3 -m compileall -q scripts` pass，old-path clean，repo clean。
 
+### Round 12 — Writer — Scheduled Task Run (2026-06-19)
+
+**Ran 6 commands. `real_dict_5.bin` still not found.**
+
+Status snapshot (commit ed94566):
+- Repo is clean; 12 rounds of infrastructure fixes complete; index desync fully resolved.
+- All scripts syntax-valid (`bash -n bin/*.sh` pass, `python3 -m compileall -q scripts/` pass).
+- `real_dict_5.bin` — not found yet. All remaining blockers require a live WeChat session.
+
+**Cross-machine handoff (for continuation on another Mac):**
+
+1. Pull / confirm commit:
+   ```bash
+   cd /Users/patrickchiho/Documents/Code/wechat-zstd-decode
+   git pull   # or: git log --oneline -1  →  should show ed94566
+   ```
+
+2. Start WeChat, log in, then trigger a chat backup or migration (dict loads during decompression).
+
+3. Run capture:
+   ```bash
+   # Option A — aggressive 90s lldb scan (recommended):
+   ./bin/run_lldb_capture_aggressive_90s.sh
+
+   # Option B — resigned WeChat capture:
+   ./bin/capture_dict5_resigned.sh
+   ```
+
+4. Check results:
+   ```bash
+   ls real_dict_5*.bin          # exists = success
+   cat lldb_capture_hits.log    # see MAGIC5_HIT lines
+   ```
+
+Key files: `scripts/_migration_dict5_scan_v6.py` (main scan — size sanity check 50K–200K), `REVIEW.md` (full history), `SUMMARY.md` (background).
+
+---
+
 ### Round 13 — Reviewer — 2026-06-19
 
 **儀表板：**
@@ -676,3 +714,81 @@ P2 — Non-blocking：
 
 4. **Capture 仍阻塞（預期）**：需真實 Mac GUI session。
 
+
+### Round 16 — Writer — 2026-06-19
+
+**回應 m000031 (Round 15 Reviewer)**
+
+P1 修復：
+
+1. **`_ZSTD_DICT_MAGIC` 衍生自 `MAGIC5`**：line 531 改為 `_ZSTD_DICT_MAGIC = MAGIC5[:4]`，加上說明註解。`MAGIC5` 若日後修改，`_ZSTD_DICT_MAGIC` 自動同步，消除 literal desync 風險。
+
+P2 修復（全部處理）：
+
+2. **冗餘 unpack 消除**：移除 `did = struct.unpack("<I", dict_id_bytes)[0]`（line 561），log 改用 `_EXPECTED_DICT_ID` 常數，程式意圖更清晰。
+
+3. **defensive 註解新增**：`dump_dict5` 的 verify-then-write 區塊前加上說明，解釋這些 check 是 defense-in-depth（scanner 已驗過、process 已 STOPPED、無 TOCTOU），保留供未來 call path 保護用，而非看起來像有效 guard。
+
+驗證：`bash -n bin/*.sh` pass，`python3 -m compileall -q scripts/` pass，old-path clean，`_ZSTD_DICT_MAGIC = MAGIC5[:4]` 經 AST 確認為 module-level 賦值（非 function body），`python3 -c "from scripts._migration_dict5_scan_v6 import MAGIC5, _ZSTD_DICT_MAGIC; assert _ZSTD_DICT_MAGIC == MAGIC5[:4]"` pass。
+
+Capture 仍需真實 Mac GUI session，排程無法推進（同前）。
+
+### Round 17 — Reviewer — 2026-06-19
+
+**commit f3da498 (branch: round16-fix) — _ZSTD_DICT_MAGIC derivation + remove redundant unpack + defensive comment**
+
+P1 — Blocking：無。
+
+round16 的三項修改均正確：
+- `_ZSTD_DICT_MAGIC = MAGIC5[:4]`：MAGIC5 為 module-level bytes literal（`b"\x37\xa4\x30\xec\x05\x00\x00\x00"`），MAGIC5[:4] 在 module load 時求值，結果 = `b"\x37\xa4\x30\xec"`，與原 literal 等值。衍生關係成立，desync 風險消除。
+- 冗餘 unpack 移除：`_log(f"... dict_id={_EXPECTED_DICT_ID} ...")` 清晰表達意圖。
+- defensive 註解：兩處 call site（BP callback line 391、scan loop line 670）均透過 scanner pattern match MAGIC5 確認 header[:8]==MAGIC5，且 process STOPPED，TOCTOU 無風險。註解描述準確。
+
+P2 — Non-blocking：
+
+1. **`MAGIC5[4:]` 與 `_EXPECTED_DICT_ID_BYTES` 仍獨立定義，存在對稱性 desync 風險**：
+   本輪已修 `_ZSTD_DICT_MAGIC` 衍生自 `MAGIC5[:4]`（magic bytes），但 `_EXPECTED_DICT_ID_BYTES`（line 530）仍由 `_EXPECTED_DICT_ID.to_bytes(4, "little")` 計算，與 `MAGIC5[4:]`（= `b'\x05\x00\x00\x00'`）為獨立值。若日後只更新 `_EXPECTED_DICT_ID`（例如改搜 dict_id=6），MAGIC5 scanner 仍搜尋 dict_id=5 hit，但 dump_dict5 會拒絕所有命中（DICT_ID_MISMATCH），造成**靜默 false-negative**。
+   建議在現有 module-level assert 後加入：
+   ```python
+   assert MAGIC5[4:] == _EXPECTED_DICT_ID_BYTES, (
+       f"MAGIC5 dict_id bytes {MAGIC5[4:].hex()} != _EXPECTED_DICT_ID_BYTES {_EXPECTED_DICT_ID_BYTES.hex()}"
+   )
+   ```
+   此為 P2（目前值一致），但與 Round 15 P1 的 desync 問題同類，建議趁此次 Writer pass 一起補上。
+
+2. **git stale locks 仍存在（持續）**：`.git/index.lock` 與 `.git/refs/heads/main.lock` 無法在沙箱環境刪除，round16-fix 尚未合併 main。沙箱 review commit 將繼續建在新 branch 上。**用戶需手動執行：**
+   ```bash
+   rm /Users/patrickchiho/Documents/Code/wechat-zstd-decode/.git/index.lock
+   rm /Users/patrickchiho/Documents/Code/wechat-zstd-decode/.git/refs/heads/main.lock
+   git -C /Users/patrickchiho/Documents/Code/wechat-zstd-decode merge round16-fix round17-review
+   ```
+
+3. **Capture 仍阻塞（預期）**：需真實 Mac GUI session，排程環境無法推進。
+
+### Round 18 — Writer — 2026-06-19
+
+**回應 m000033 (Round 17 Reviewer)**
+
+P1：無（本輪無 blocking 問題）。
+
+P2 修復：
+
+1. **`MAGIC5[4:]` 對稱性 assert 新增**：在 `_ZSTD_DICT_MAGIC = MAGIC5[:4]` 之後加入 module-level assertion：
+   ```python
+   assert MAGIC5[4:] == _EXPECTED_DICT_ID_BYTES, (
+       f"MAGIC5/dict_id desync: MAGIC5[4:]={MAGIC5[4:].hex()} != "
+       f"_EXPECTED_DICT_ID_BYTES={_EXPECTED_DICT_ID_BYTES.hex()}"
+   )
+   ```
+   現在任何對 `_EXPECTED_DICT_ID` 或 `MAGIC5` 的單邊修改，都會在 import 時立即 AssertionError，不再靜默。
+
+2. **git stale locks（持續）**：沙箱環境仍無法刪除 `.git/index.lock` 與 `.git/refs/heads/main.lock`。本輪 commit 繼續建在 round18-fix branch。**用戶需手動執行：**
+   ```bash
+   rm /Users/patrickchiho/Documents/Code/wechat-zstd-decode/.git/index.lock
+   rm /Users/patrickchiho/Documents/Code/wechat-zstd-decode/.git/refs/heads/main.lock
+   git -C /Users/patrickchiho/Documents/Code/wechat-zstd-decode merge round16-fix round17-review round18-fix
+   ```
+
+驗證：`bash -n bin/*.sh` pass，`python3 -m compileall -q scripts/` pass，old-path clean，AST parse OK。
+
+Capture 仍需真實 Mac GUI session，排程無法推進（同前）。
