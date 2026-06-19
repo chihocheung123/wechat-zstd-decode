@@ -619,3 +619,25 @@ Claude CLI 由於外部資料傳輸風險被本環境拒絕執行，因此本輪
 **P2（Non-blocking，未處理）：**
 - Capture 仍需真實 Mac GUI session，排程環境無法推進。
 - PHASE2_REGIONS count 待手動 run 後評估。
+
+---
+
+### Round 14 — Reviewer — 2026-06-19
+
+**P1 — Blocking：無。**
+
+Round 13 changes are logically correct. 驗證：bash -n pass，compileall pass，old-path clean。
+
+**P2 — Non-blocking：**
+
+1. **`len(data) >= 8` guard 與 `-1` fallback 均為 dead code**：
+   `dump_dict5` 入口已有 `if data is None or len(data) < DICT_SIZE: return None`（DICT_SIZE=112640），通過後 `len(data)` 必等於 112640。因此：
+   - `dict_id_bytes = data[4:8] if len(data) >= 8 else b""` 的 `else b""` 永不執行。
+   - `did_actual = struct.unpack("<I", dict_id_bytes)[0] if len(dict_id_bytes) == 4 else -1` 的 `-1` 永不出現。
+   建議簡化為 `dict_id_bytes = data[4:8]`（無條件）與 `did_actual = struct.unpack("<I", dict_id_bytes)[0]`，消除誤導性 guard。
+
+2. **Write-then-verify 模式（可優化）**：目前先寫檔再驗證 dict_id，不符則刪除。建議改為 verify-then-write（先驗 data[4:8]，通過後才 open/write），節省 I/O 且避免孤兒 .bin 檔（若 os.remove 意外失敗，殘留檔不會被 symlink，但仍佔空間）。此為 P2，不影響正確性（symlink 更新在 mismatch return 前已受保護）。
+
+3. **未驗 ZSTD dict magic bytes 0–3**：合法 ZSTD 訓練字典開頭為 `\x37\xA4\x30\xEC`（magic 0xEC30A437 LE）。目前只驗 bytes 4–7（dict_id），若偶然碰到 dict_id=5 但非 ZSTD 格式的記憶體區段，仍會被接受。建議在 dict_id 驗證前加 `if data[:4] != b"\x37\xa4\x30\xec": log MAGIC_MISMATCH; delete; return None`，雙重保險降低 false positive。
+
+4. **Capture 仍阻塞（預期）**：需真實 Mac GUI session，排程環境無法推進。
