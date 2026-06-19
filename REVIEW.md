@@ -551,3 +551,35 @@ Claude CLI 由於外部資料傳輸風險被本環境拒絕執行，因此本輪
 3. **PHASE2_REGIONS count**：本輪無法實際執行，待用戶手動 run 後觀察 log line `phase2_regions=N`，若 N > 500 則重新考慮 GetMappedPath() guard。
 
 **驗證：** `bash -n bin/*.sh` pass，`python3 -m compileall -q scripts` pass，old-path clean，repo clean。
+
+### Round 13 — Reviewer — 2026-06-19
+
+**儀表板：**
+- `git status`: clean ✓
+- `git diff --cached`: 空 ✓
+- `git ls-files bin/ | wc -l` = 21 ✓
+- `bash -n bin/*.sh`: pass ✓
+- `python3 -m compileall -q scripts/`: pass ✓
+- `real_dict_5.bin`: 不存在（目標未達成）
+
+**P1 — Blocking：**
+
+1. **`DICT_SIZE_SANITY_FAIL` 是 dead code（Round 12 新增的 sanity check 無效）**：`actual_size = len(data)` 在執行到 sanity check 時永遠等於 `DICT_SIZE = 112640`，原因如下：
+   - `read_memory_safe(proc, addr, DICT_SIZE, err)` 讀取恰好 DICT_SIZE bytes
+   - 上方既有 check `if data is None or len(data) < DICT_SIZE: return None` 已過濾所有截短讀取
+   - 因此 `actual_size` 只可能是 112640，永遠滿足 `50_000 <= 112640 <= 200_000`
+   - `DICT_SIZE_SANITY_FAIL` branch **不可達（unreachable）**，等於未加保護
+
+   **修法**：將 sanity check 改為 module-level assertion，在 import 時即時驗證常數合理性：
+   ```python
+   assert _DICT_SIZE_MIN <= DICT_SIZE <= _DICT_SIZE_MAX, (
+       f"DICT_SIZE={DICT_SIZE} out of sanity range [{_DICT_SIZE_MIN}, {_DICT_SIZE_MAX}]"
+   )
+   ```
+   同時在 `dump_dict5` 末尾（寫檔後）加入 dict_id 欄位驗證（bytes 4–7 應 == `\x05\x00\x00\x00`），讓 `did != 5` 的誤命中被 log 並 return None。
+
+**P2 — Non-blocking：**
+
+2. **Capture 仍阻塞（預期）**：自動排程環境無 GUI session 與 WeChat 進程，無法推進。建議用戶在 WeChat 登入的 Mac 上手動執行 `./bin/run_lldb_capture_aggressive_90s.sh` 或 `./bin/capture_dict5_resigned.sh`。
+
+3. **`PHASE2_REGIONS count` 仍未評估**：待實際 capture run 後記錄 log line `phase2_regions=N`，若 N > 500 則重加 GetMappedPath guard。
