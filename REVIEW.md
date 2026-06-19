@@ -590,6 +590,50 @@ Key files: `scripts/_migration_dict5_scan_v6.py` (main scan — size sanity chec
 
 ---
 
+### Round 19 — Writer — 2026-06-19
+
+**回應 m000034 + m000035（Codex capture 結論）**
+
+**捕捉結果確認：**
+
+三個 resigned WeChat 進程均 NO_CAPTURE：
+- 主進程 PID 62765/63521 → phase2_magic5=0
+- WeChatAppEx PID 64138 → NO_CAPTURE，phase2_cursor_final=0/833
+- ILinkServiceHost helper PID 64141 → NO_CAPTURE，phase2_cursor_final=0/244
+
+結論：dict_id=5 不存在於 Mac WeChat rw 記憶體，與 `docs/IOS_DICT5_README.txt` 的假設吻合：「dict_5 is an iOS export/migration ZSTD dictionary… may only exist on the iOS device while iOS WeChat is running backup/export」。
+
+**本輪改動：**
+
+1. **`bin/capture_dict5_ios.sh` — 新腳本**：
+   - 支援兩種模式：`developer`（開發者憑證，非越獄）和 `jailbreak`（越獄設備）
+   - 透過 `platform select remote-ios` + `platform connect connect://HOST:PORT` 建立 LLDB iOS 遠端連線
+   - `process attach --name WeChat --waitfor --timeout 120` 等待並 attach 設備上的 WeChat
+   - 動態生成臨時 `.lldb` 腳本，import 現有 `_migration_dict5_scan_v6.py`，執行 `migration_capture_90s_v6`
+   - 捕捉成功後自動呼叫 `validate_dict5.py` 驗證
+   - 詳細操作說明（prerequisite steps）內嵌於腳本
+
+**使用方式：**
+```bash
+# developer mode（非越獄，需先跑 idevicedebugserverproxy 1234）：
+./bin/capture_dict5_ios.sh
+
+# jailbreak mode（越獄，需先在設備上啟動 debugserver）：
+./bin/capture_dict5_ios.sh --mode jailbreak --ip DEVICE_IP --port 1234
+```
+
+**驗證：**
+- `bash -n bin/capture_dict5_ios.sh`: pass ✓
+- `bash -n bin/*.sh`: pass ✓（all 22 scripts）
+- `python3 -m compileall -q scripts/`: pass ✓
+- old-path clean ✓
+
+**尚未處理：**
+- P2：`_migration_dict5_scan_v6.py` 的 `roam_migration_ranges()` 在 iOS 上可能找不到對應 module（iOS WeChat 架構不同），Phase 1 可能空掃，僅 Phase 2 有效——待實際 iOS run 後觀察 log
+- Capture 仍需真實 iOS 設備 + WeChat 備份/遷移觸發
+
+---
+
 ### Round 13 — Reviewer — 2026-06-19
 
 **儀表板：**
