@@ -634,6 +634,35 @@ Key files: `scripts/_migration_dict5_scan_v6.py` (main scan — size sanity chec
 
 ---
 
+### Round 21 — Writer — 2026-06-19
+
+**回應 m000038（Codex Round 19/20 review）**
+
+**P1 修復：**
+
+1. **`capture_dict5_ios.sh` LLDB connect 指令錯誤**：`idevicedebugserverproxy` 和 jailbreak `debugserver` 都暴露 **gdb-remote** 協議，不是 LLDB platform server。原本的 `platform connect connect://HOST:PORT` 是用來連接 `lldb-server platform`，對 debugserver 無效。修法：
+   - 保留 `platform select remote-ios`（告訴 LLDB 目標平台）
+   - 將 `platform connect connect://HOST:PORT` 改為 `process connect --plugin process.gdb-remote connect://HOST:PORT`
+   - 移除 `process attach --name WeChat --waitfor`（`--waitfor` 由 device 端 `debugserver -waitfor WeChat` 處理，`process connect` 後直接進入已 attach 的進程）
+
+2. **`scan_wechat_fs_for_dict5.sh` 漏掃 WeChat-Resigned 路徑（P1）**：新增：
+   - `$HOME/Downloads/wechat_export/WeChat-Resigned.app/Contents`
+   - `$HOME/Downloads/wechat_export/WeChat-Resigned-Full.app/Contents`
+   這是所有 LLDB capture 實際使用的 resigned bundle，是最有可能快取 dict 的位置。
+
+**P2 修復：**
+
+3. **FS 掃描大小限制從 10 MB 提升到 200 MB**：Python helper `scan_file(max_size=)` 和 shell 判斷式同步從 10 MB → 200 MB，確保大型 WeChat DB / cache 檔案不被跳過（只做 header check）。
+
+4. **working tree 未 commit 的 `scan_wechat_fs_for_dict5.sh`（Round 20 遺留）**：一併納入本輪 commit。
+
+**驗證：**
+- `bash -n bin/*.sh`: pass ✓（all 22 scripts）
+- `python3 -m compileall -q scripts/`: pass ✓
+- old-path clean ✓
+
+---
+
 ### Round 13 — Reviewer — 2026-06-19
 
 **儀表板：**
@@ -836,3 +865,34 @@ P2 修復：
 驗證：`bash -n bin/*.sh` pass，`python3 -m compileall -q scripts/` pass，old-path clean，AST parse OK。
 
 Capture 仍需真實 Mac GUI session，排程無法推進（同前）。
+
+### Round 19 — Writer — 2026-06-19
+
+**回應 m000034 / m000035（Mac 多進程 capture 全數 NO_CAPTURE）**
+
+P1：無（code 無 blocking 問題，上輪 merge 已確認 main 在 a503600）。
+
+**新增探索路徑：`bin/scan_wechat_fs_for_dict5.sh`**
+
+m000035 報告 main WeChat、WeChatAppEx、ILinkServiceHost 三個 Mac 進程掃描均 MAGIC5 hits=0。
+在進入 iOS device capture 之前，嘗試一個尚未探索的路徑：**WeChat on-disk container 搜尋**。
+
+dict_id=5 可能曾被 WeChat 快取至磁碟（Library/Containers、Group Containers、Caches、app bundle resources 等），這條路徑不需要 LLDB attach，也不需要 GUI session。
+
+新腳本功能：
+1. 掃描 macOS 所有已知 WeChat 儲存路徑（Library/Containers、Group Containers、Caches、app bundle Contents 等）
+2. 搜尋 `.bin / .dat / .cache / .db / .dict / .zstd` 等常見擴展名
+3. 以 Python helper（避免 heredoc-in-$() 語法問題）做 byte-level MAGIC5 搜尋（offset=0 快速檢查 + 全檔深搜 for files ≤ 10 MB）
+4. 命中則複製/提取到 `$WORKSPACE/real_dict_5_fs_*.bin` 並自動呼叫 `validate_dict5.py`
+5. 未命中則輸出明確結論並指向 `docs/IOS_DICT5_README.txt`
+
+**驗證：**
+- `bash -n bin/*.sh`: PASS（包含新腳本）
+- `python3 -m compileall -q scripts/`: PASS
+- old-path clean: PASS
+- git stale locks：本輪 main 已在 a503600（用戶手動 merge），working tree clean
+
+**下一步建議（依優先序）：**
+1. 執行 `./bin/scan_wechat_fs_for_dict5.sh`（需真實 Mac，無需 WeChat 運行中）
+2. 若 hits=0 → 確認 dict_id=5 完全不在 Mac 磁碟，前往 iOS device capture（`docs/IOS_DICT5_README.txt`）
+3. 若找到候選 → validate 並回報

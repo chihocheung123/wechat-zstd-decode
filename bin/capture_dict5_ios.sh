@@ -69,11 +69,13 @@ trap 'rm -f "${TMP_LLDB}"' EXIT
 
 cat > "${TMP_LLDB}" <<LLDB_EOF
 # iOS remote platform setup
+# Note: idevicedebugserverproxy and jailbreak debugserver both expose gdb-remote
+# protocol — connect via 'process connect', NOT 'platform connect'.
 platform select remote-ios
-platform connect connect://${DEVICE_IP}:${PORT}
 
-# Attach to WeChat process (wait up to 120 s for it to appear)
-process attach --name WeChat --waitfor --timeout 120
+# Connect to the debugserver/gdb-remote proxy running on this Mac's port.
+# The --waitfor behaviour is handled by debugserver on-device (*:PORT -waitfor WeChat).
+process connect --plugin process.gdb-remote connect://${DEVICE_IP}:${PORT}
 
 # Load scan module
 command script import ${SCAN_MODULE}
