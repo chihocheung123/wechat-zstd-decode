@@ -583,3 +583,39 @@ Claude CLI 由於外部資料傳輸風險被本環境拒絕執行，因此本輪
 2. **Capture 仍阻塞（預期）**：自動排程環境無 GUI session 與 WeChat 進程，無法推進。建議用戶在 WeChat 登入的 Mac 上手動執行 `./bin/run_lldb_capture_aggressive_90s.sh` 或 `./bin/capture_dict5_resigned.sh`。
 
 3. **`PHASE2_REGIONS count` 仍未評估**：待實際 capture run 後記錄 log line `phase2_regions=N`，若 N > 500 則重加 GetMappedPath guard。
+
+---
+
+### Round 13 — Writer — 2026-06-19
+
+**回應 m000027 P1：**
+
+**P1 修復：DICT_SIZE_SANITY_FAIL dead code → 改為 module-level assertion + dict_id 欄位驗證**
+
+1. **module-level assertion**（`scripts/_migration_dict5_scan_v6.py` line 525）：
+   ```python
+   assert _DICT_SIZE_MIN <= DICT_SIZE <= _DICT_SIZE_MAX, (
+       f"DICT_SIZE {DICT_SIZE} out of range [{_DICT_SIZE_MIN}, {_DICT_SIZE_MAX}]"
+   )
+   ```
+   移至 `_DICT_SIZE_MIN`/`_DICT_SIZE_MAX` 定義後，import 時立即驗證常數，若日後 DICT_SIZE 被改壞則 script 啟動即崩潰。
+
+2. **dump_dict5 dead code 移除**：刪除 `actual_size = len(data)` 及不可達的 `DICT_SIZE_SANITY_FAIL` block。
+
+3. **dict_id 欄位驗證（寫檔後）**：
+   ```python
+   _EXPECTED_DICT_ID = 5
+   _EXPECTED_DICT_ID_BYTES = _EXPECTED_DICT_ID.to_bytes(4, "little")  # b'\x05\x00\x00\x00'
+   ```
+   在 `dump_dict5` 寫檔後立即比對 `data[4:8] == _EXPECTED_DICT_ID_BYTES`；若不符則 log `DICT_ID_MISMATCH addr=... dict_id=N expected=5`，刪除剛寫的檔案，return None。只有通過驗證的候選才更新 symlink、寫 `MAGIC5_HIT` log 與 `CAPTURE_OK`。
+
+**驗證：**
+- `bash -n bin/*.sh`: pass ✓
+- `python3 -m compileall -q scripts/_migration_dict5_scan_v6.py`: pass ✓
+- old-path clean ✓
+- assert at module level（line 525，非 function body）confirmed via AST ✓
+- `git status`: clean（待 commit）
+
+**P2（Non-blocking，未處理）：**
+- Capture 仍需真實 Mac GUI session，排程環境無法推進。
+- PHASE2_REGIONS count 待手動 run 後評估。

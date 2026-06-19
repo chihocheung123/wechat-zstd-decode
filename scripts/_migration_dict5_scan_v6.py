@@ -521,6 +521,13 @@ def maybe_continue(proc: lldb.SBProcess) -> None:
 
 _DICT_SIZE_MIN = 50_000
 _DICT_SIZE_MAX = 200_000
+# Module-level assertion: catch a bad DICT_SIZE constant at import time
+assert _DICT_SIZE_MIN <= DICT_SIZE <= _DICT_SIZE_MAX, (
+    f"DICT_SIZE {DICT_SIZE} out of range [{_DICT_SIZE_MIN}, {_DICT_SIZE_MAX}]"
+)
+
+_EXPECTED_DICT_ID = 5
+_EXPECTED_DICT_ID_BYTES = _EXPECTED_DICT_ID.to_bytes(4, "little")  # b'\x05\x00\x00\x00'
 
 
 def dump_dict5(proc: lldb.SBProcess, addr: int, err: lldb.SBError) -> str | None:
@@ -529,18 +536,24 @@ def dump_dict5(proc: lldb.SBProcess, addr: int, err: lldb.SBError) -> str | None
         _log(f"DUMP_FAIL addr=0x{addr:x} err={err.GetCString()}")
         return None
 
-    actual_size = len(data)
-    if not (_DICT_SIZE_MIN <= actual_size <= _DICT_SIZE_MAX):
-        _log(f"DICT_SIZE_SANITY_FAIL addr=0x{addr:x} size={actual_size} "
-             f"expected={_DICT_SIZE_MIN}..{_DICT_SIZE_MAX} — skipping")
-        return None
-
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     out_name = f"real_dict_5_{ts}.bin"
     out_path = os.path.join(EXPORT, out_name)
     with open(out_path, "wb") as f:
         f.write(data)
 
+    # Verify dict_id field (bytes 4–7) equals 5 after writing
+    dict_id_bytes = data[4:8] if len(data) >= 8 else b""
+    if dict_id_bytes != _EXPECTED_DICT_ID_BYTES:
+        did_actual = struct.unpack("<I", dict_id_bytes)[0] if len(dict_id_bytes) == 4 else -1
+        _log(f"DICT_ID_MISMATCH addr=0x{addr:x} dict_id={did_actual} expected={_EXPECTED_DICT_ID} — removing")
+        try:
+            os.remove(out_path)
+        except OSError:
+            pass
+        return None
+
+    did = struct.unpack("<I", dict_id_bytes)[0]
     link_path = os.path.join(EXPORT, "real_dict_5.bin")
     try:
         if os.path.islink(link_path) or os.path.exists(link_path):
@@ -549,7 +562,6 @@ def dump_dict5(proc: lldb.SBProcess, addr: int, err: lldb.SBError) -> str | None
     except OSError as exc:
         _log(f"SYMLINK_WARN {exc}")
 
-    did = struct.unpack("<I", data[4:8])[0] if len(data) >= 8 else -1
     _log(f"MAGIC5_HIT addr=0x{addr:x} dict_id={did} wrote={out_path}")
     print(f"CAPTURE_OK {out_path}", flush=True)
     return out_path
