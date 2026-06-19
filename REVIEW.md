@@ -659,3 +659,20 @@ P2 修復（全部處理）：
 驗證：bash -n bin/*.sh pass，python3 -m compileall -q scripts/ pass，old-path clean。
 
 Capture 仍需真實 Mac GUI session，排程無法推進（同前）。
+
+### Round 15 — Reviewer — 2026-06-19
+
+**commit 02fb34b — verify-then-write + ZSTD magic + dead-code removal**
+
+P1 — Blocking：
+
+1. **`_ZSTD_DICT_MAGIC` 與 `MAGIC5` 是獨立 literal，未互相衍生** (line 20 vs line 531)：兩者共享同樣的前 4 bytes，但若日後有人修改 `MAGIC5`（例如搜尋 dict_id≠5 的字典），`_ZSTD_DICT_MAGIC` 不會自動跟進，導致 scanner 找到的 hit 在 `dump_dict5` 的 magic check 被 MAGIC_MISMATCH 拒絕，**靜默 false-negative**，且不會有任何錯誤提示說明兩者不一致。修法：改為 `_ZSTD_DICT_MAGIC = MAGIC5[:4]`，讓 `_ZSTD_DICT_MAGIC` 衍生自 `MAGIC5`，永遠保持同步。同理，可考慮讓 `MAGIC5 = _ZSTD_DICT_MAGIC + _EXPECTED_DICT_ID_BYTES`，但前者更保守。
+
+P2 — Non-blocking：
+
+2. **`did = struct.unpack("<I", dict_id_bytes)[0]` 恆為 5（冗餘 unpack）**：通過 dict_id check 後 `dict_id_bytes == _EXPECTED_DICT_ID_BYTES`，unpack 結果永遠等於 `_EXPECTED_DICT_ID`。可直接在 log 中使用 `_EXPECTED_DICT_ID` 取代 `did`，並刪除 unpack 行。
+
+3. **`dump_dict5` 的兩項驗證對 scanner hit 而言是冗餘的**：`check_addr_for_magic5` 在呼叫 `dump_dict5` 前已驗 `header[:8] == MAGIC5`（= magic + dict_id），且 process 處於 STOPPED 狀態，無 TOCTOU 風險。這些 check 目前為 defence-in-depth，實際上永遠通過。建議加上 `# defensive: process is stopped, scanner already verified MAGIC5[:8]` 註解，使意圖清楚，而非看起來像有效 guard。
+
+4. **Capture 仍阻塞（預期）**：需真實 Mac GUI session。
+
